@@ -1,0 +1,3 @@
+ticket,symbol,type,volume,open_price,open_time,close_price,close_time,profit,sl,tp
+1000000,EURUSD,BUY,0.1,1.17242,2026-04-25T13:25:13.932341+00:00,,,,1.16,1.18
+1000000,EURUSD,BUY,0.1,1.17242,2026-04-25T13:25:13.932341+00:00,1.17195,2026-04-25T13:25:13.933222+00:00,-4.7,1.16,1.18

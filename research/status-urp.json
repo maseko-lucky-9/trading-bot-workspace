@@ -1,0 +1,21 @@
+{
+  "phase": "0",
+  "completed": true,
+  "timestamp": "2026-04-24T11:00:00Z",
+  "output_files": [
+    "research-config.yaml",
+    "research-plan.json",
+    "source-map.yaml",
+    "collection-plan.yaml",
+    "gap-tracking.md",
+    "raw/t1-general.json",
+    "urp-findings.md"
+  ],
+  "summary": {
+    "entries_collected": 28,
+    "krqs_addressed": 5,
+    "tools_used": ["exa", "websearch", "firecrawl"],
+    "claims_validated": 3,
+    "quality_gate": "PASS"
+  }
+}

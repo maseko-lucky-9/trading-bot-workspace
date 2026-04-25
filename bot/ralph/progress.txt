@@ -1,0 +1,144 @@
+## Agent 5 Implementation Log (2026-04-25)
+
+- US-001 PASS: core/bridge/http_client.py — httpx + tenacity, ping/get_tick/get_account/send_order/get_results/is_connected. Verified against live bridge (EURUSD).
+- US-002 PASS: core/execution/order_manager.py — paper-mode buy/sell/close, in-memory positions, append-only logs/trades.csv journal. Verified buy then close round-trip with non-empty positions and computed profit.
+- US-003 PASS: core/data/history.py + /history endpoint added to http_server.py. Bridge running instance pre-dates the new endpoint, so HistoryFetcher falls back to deterministic synthetic walk seeded from the live tick. Parquet cache writes to bridge_data/history/. fetch returned (100,6) DataFrame.
+- US-004 PASS: core/strategy/base.py + ema_crossover.py. Pure pandas EMA + Wilder ATR. Signal dataclass with action/strength/reason/timestamp/meta.
+- US-005 PASS: core/risk/manager.py — ATR sizing, three-layer breakers (warn/reduce/halt), daily loss + consecutive-loss circuit breakers, validate_order requires SL.
+- US-006 PASS: core/performance/tracker.py — Sharpe via daily-aggregated returns, returns 0.0 (not NaN) when <2 trades.
+- US-007 PASS: backtest/engine.py CLI with stdout SHARPE / GUARD contract; supports --metric, --guard, --params, --symbol, --timeframe, --bars. Uses parquet cache when available else HistoryFetcher (synthetic fallback). On synthetic data first run prints SHARPE -0.3403 and GUARD FAIL — expected; CLI works.
+- US-008 PASS: knowledge/base.py — markdown indexer over research/knowledge-base.md. 65 sections parsed; query("EMA") returns 9 hits.
+- US-009 PASS: core/checkpoint/state.py — BotState dataclass + CheckpointManager.save/load/rotate (pickle + JSON manifest). Round-trip verified.
+- US-010 PASS: autoresearch/loop.py — 8-phase coordinate descent, results.tsv with columns iteration/param/old_val/new_val/sharpe/max_dd/win_rate/decision/timestamp. 2-iteration smoke run produced two rollback decisions on synthetic data.
+
+Cross-cutting:
+- main.py wiring all components; --confirm-live + config.yaml dual interlock for live mode; --max-seconds for short-lived runs.
+- requirements.txt: dropped ta-lib-easy + vectorbt; added httpx, tenacity, pyarrow, tabulate, pytest, pytest-asyncio, responses, freezegun.
+- tests/: 16 tests across bridge_client, risk_manager, performance_tracker, backtest_engine — all passing.
+
+Notes for future agents:
+- Bridge server needs a restart to pick up the new /history endpoint; until then HistoryFetcher transparently uses synthetic data.
+- Synthetic data deliberately fails the GUARD (Sharpe + win rate gates). Real EURUSD H1 history is required to drive parameter tuning to a real PASS.
+- All paper-mode trades are journalled to logs/trades.csv (open + close rows).
+
+---
+## Codebase Patterns
+- Bridge HTTP server runs on 192.168.64.1:8080 (UTM host-only IP). Always use this address for client connections.
+- All config lives in bot/config.yaml. Never hardcode thresholds — always read via yaml.safe_load.
+- Paper mode is the default (bot.mode: paper). Live mode requires BOTH config change AND --confirm-live flag. This is a dual interlock — do not remove either check.
+- Test files go alongside the module they test: core/risk/manager.py → core/risk/test_manager.py
+- Use python -m pytest from the bot/ root directory. All test commands should be runnable without a live MT5 connection.
+- Parquet via pyarrow is the preferred persistence format for OHLCV data. JSON for small state blobs (account, positions). Pickle for full checkpoint state.
+- The knowledge base at research/knowledge-base.md is the authoritative source for indicator formulas, risk thresholds, and strategy parameters. Read it before implementing any strategy or risk logic.
+---
+
+## Bridge Architecture
+
+### HTTP Bridge (Chosen Implementation)
+- Protocol: HTTP REST via FastAPI + uvicorn
+- Server location: macOS M5 Pro host — bot/core/bridge/http_server.py
+- Client location: UTM Windows 11 ARM VM running MT5 EA
+- EA endpoint: http://192.168.64.1:8080 (UTM host-only adapter IP)
+- MT5 EA uses WebRequest() with GET/POST — allow WebRequest in MT5 Tools → Options → Expert Advisors
+- Heartbeat interval: EA POSTs heartbeat every 5 seconds; bot checks heartbeat.time on every tick read
+- Heartbeat timeout: 10 seconds (config: bridge.heartbeat_timeout). Beyond this, treat bridge as disconnected.
+
+### Key Endpoints
+- POST /tick — EA pushes live tick data (bid, ask, spread, time, OHLCV H1)
+- POST /account — EA pushes account state (balance, equity, margin)
+- GET /command — EA polls for pending bot commands (orders, close, etc.)
+- POST /result — EA confirms order execution results
+- GET /health — liveness probe for bridge monitoring
+
+### Known MT5 WebRequest Quirks
+- WebRequest has a hardcoded 5s timeout in MQL5. Bridge must respond within 4s to avoid EA-side timeout.
+- MT5 EA runs on the timer event (OnTimer) not on every tick. Set timer to 1000ms (1s) for H1 trading — not faster.
+- If MT5 terminal is minimised, OnTimer fires at reduced frequency. Keep terminal visible during live trading.
+- Allow DLL Imports must be checked in MT5 for ZMQ variant (not needed for HTTP/WebRequest).
+- WebRequest requires whitelist entry for 192.168.64.1 in MT5 Tools → Options → Expert Advisors → "Allow WebRequest for listed URL".
+
+### File-Based IPC (Legacy — do not use for new code)
+- core/bridge/mt5_client.py reads/writes files from shared folder at /Volumes/mt5bridge
+- Only retained for fallback testing without UTM running
+- New code should use HTTP bridge client (US-001)
+
+---
+
+## Data Characteristics
+
+### Primary Instruments
+- EURUSD — primary, 5-digit quotes (0.00001 pip), 10 USD/pip/standard lot
+- GBPUSD — secondary, same structure as EURUSD
+
+### Timeframe
+- H1 (60-minute candles) — primary trading timeframe
+- Data granularity sufficient for EMA crossover (slow period up to 50 candles = ~50 hours lookback)
+
+### Demo Account
+- All initial development and paper trading uses a demo account
+- Equity target for live mode enablement: > 1000 USD
+- No slippage model needed for demo; paper broker uses mid-price fill
+
+### Historical Data
+- Requested via /history endpoint on bridge (EA calls MT5 CopyRates internally)
+- Cache location: bridge_data/history/{symbol}_{timeframe}.parquet
+- Cache TTL: 1 hour for H1, 15 minutes for M15 and below
+- Minimum history required for indicators: max(slow_ema_period, atr_period) + 10 candles = ~64 candles minimum
+
+---
+
+## Target Performance Metrics (Autoresearch Guards)
+
+These are the minimum acceptable thresholds. Any parameter set that fails ANY of these is rejected by the backtest guard:
+
+- Sharpe ratio: > 1.5 (annualised, 252 trading days)
+- Maximum drawdown: < 5% (peak-to-trough on equity curve)
+- Win rate: > 45% (fraction of profitable closed trades)
+
+Source: config.yaml autoresearch section. Do not modify these without updating config.yaml.
+
+---
+
+## Risk Framework
+
+### Position Sizing
+- Max risk per trade: 1% of equity (config: risk.max_risk_per_trade = 0.01)
+- Kelly fraction: 0.25 (quarter Kelly — conservative start)
+- Formula: size = (equity * 0.01) / (|entry - sl| / pip_value)
+- After Kelly: size *= 0.25
+- Round to 0.01 lots; minimum 0.01 lots
+
+### Drawdown Thresholds (config: risk.*)
+- 10% DD (trailing_dd_warn): log warning, reduce position size 30% (multiplier 0.7)
+- 15% DD (trailing_dd_reduce): reduce position size 50% (multiplier 0.5)
+- 20% DD (trailing_dd_halt): halt all trading (multiplier 0.0)
+- Daily loss limit: 2% of equity (daily_loss_limit = 0.02) — hard stop for the day
+
+---
+
+## Project Structure
+
+```
+trading-bot-workspace/
+  bot/
+    config.yaml          — all configuration
+    requirements.txt     — Python dependencies
+    core/
+      bridge/            — HTTP bridge server + client
+      data/              — OHLCV fetcher + cache
+      execution/         — paper + live broker
+      risk/              — position sizing + drawdown checks
+      strategy/          — EMA crossover + signal types
+      performance/       — metrics tracker
+      checkpoint/        — pickle state manager
+    autoresearch/        — 8-phase parameter iteration engine
+    backtest/            — backtest engine (CLI: python backtest/engine.py)
+    knowledge/           — KB loader + section query
+    ralph/               — this directory: prd.json + progress.txt
+    scripts/             — utility scripts
+  checkpoints/           — pickle files from checkpoint manager
+  research/              — knowledge base + agent outputs
+  logs/                  — live order log, system logs
+```
+
+---

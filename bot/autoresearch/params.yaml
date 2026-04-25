@@ -1,0 +1,10 @@
+strategy: ema_crossover
+ema_fast: 13.0
+ema_slow: 20.0
+atr_multiplier: 2.25
+risk_pct: 0.01
+bb_period: 20
+bb_std: 2.75
+rsi_period: 17.0
+rsi_ob: 70
+rsi_os: 30

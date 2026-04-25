@@ -1,0 +1,29 @@
+# Core
+pyyaml>=6.0
+pandas>=2.0
+numpy>=1.26
+pyarrow>=15.0             # parquet cache for OHLCV history
+
+# HTTP / bridge
+httpx>=0.27
+requests>=2.31
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+tenacity>=8.2             # retry policy for bridge calls
+
+# Strategy / ML
+scikit-learn>=1.4
+optuna>=3.6               # Bayesian optimisation
+stable-baselines3>=2.3    # RL (PPO) — optional
+
+# Reporting / utilities
+tabulate>=0.9
+python-dotenv>=1.0
+loguru>=0.7
+
+# Testing
+pytest>=8.0
+pytest-asyncio>=0.23
+responses>=0.25
+freezegun>=1.4

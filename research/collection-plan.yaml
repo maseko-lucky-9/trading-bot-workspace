@@ -1,0 +1,82 @@
+_meta:
+  generated_at: "2026-04-24T10:36:00Z"
+  slug: "mt5-autonomous-trading-bot-for-apple-silicon"
+  phase: 0c
+
+tiers:
+  T1:
+    queries_allocated: 72
+    subagent_file: raw/t1-general.json
+    krq_assignments: [KRQ1, KRQ2, KRQ3, KRQ4, KRQ5]
+    priority_sources:
+      - websearch (priority 3 for KRQ1, KRQ4)
+      - exa (priority 3 for KRQ2, KRQ3, KRQ4)
+      - webfetch (priority 3 for KRQ1, KRQ5)
+    query_strategy:
+      KRQ1:
+        - "MT5 Python macOS bridge ZMQ socket"
+        - "MetaTrader5 Python library alternatives macOS"
+        - "silicon-metatrader5 Docker Python"
+        - "MQL5 socket Expert Advisor Python bridge"
+        - "MT5 REST API Python trading"
+      KRQ2:
+        - "vectorbt backtesting Apple Silicon ARM native benchmark"
+        - "backtrader vs vectorbt performance comparison"
+        - "zipline-reloaded M1 M2 M3 compatibility"
+        - "Python backtesting framework benchmark 2025 2026"
+      KRQ3:
+        - "self-improving trading bot architecture"
+        - "Bayesian optimization trading strategy parameters"
+        - "evolutionary algorithm trading strategy optimization"
+        - "machine learning trading parameter tuning loop"
+      KRQ4:
+        - "algorithmic trading risk management framework"
+        - "trading bot circuit breaker implementation"
+        - "Kelly criterion position sizing Python"
+        - "max drawdown control autonomous trading"
+        - "order deduplication trading safeguards"
+      KRQ5:
+        - "Python memory optimization Apple Silicon unified memory"
+        - "asyncio multiprocessing trading bot architecture"
+        - "PyTorch MPS backend trading ML"
+        - "pandas memory efficiency large dataset M1 M2"
+
+  T2:
+    queries_allocated: 36
+    subagent_file: raw/t2-deep.json
+    krq_assignments: [KRQ1, KRQ2, KRQ3, KRQ4, KRQ5]
+    priority_sources:
+      - firecrawl (deep content extraction)
+    query_strategy:
+      KRQ1:
+        - "site:github.com MT5 Python bridge macOS"
+        - "site:mql5.com Python socket Expert Advisor"
+      KRQ2:
+        - "site:github.com vectorbt polaski ARM"
+        - "site:github.com backtrader Apple Silicon"
+      KRQ3:
+        - "site:github.com trading bot optimization loop"
+      KRQ4:
+        - "site:github.com trading risk management Python"
+      KRQ5:
+        - "site:developer.apple.com Python performance optimization"
+
+  T3:
+    queries_allocated: 12
+    subagent_file: raw/t3-browser.json
+    krq_assignments: [KRQ1]
+    priority_sources:
+      - playwright (dynamic forum content)
+    status: conditional
+    notes: "Use only if T1/T2 insufficient for KRQ1 forum discussions"
+
+collection_order:
+  - T1 (parallel across KRQs)
+  - T2 (deep dive on high-priority findings)
+  - T3 (targeted forum scraping if needed)
+
+budget_summary:
+  total_queries: 120
+  T1: 72 (60%)
+  T2: 36 (30%)
+  T3: 12 (10%)

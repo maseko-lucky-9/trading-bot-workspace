@@ -1,0 +1,89 @@
+[2026-04-25T13:57:13Z] === AUTONOMOUS MODE START (paper) ===
+[2026-04-25T13:57:13Z] Bot dir : /Users/ltmas/trading-bot-workspace/bot
+[2026-04-25T13:57:13Z] Log     : /Users/ltmas/trading-bot-workspace/bot/../logs/autonomous.log
+[2026-04-25T13:57:13Z] --- Cycle 1 ---
+[2026-04-25T13:57:13Z] Starting bot (paper, 300s)...
+resumed from checkpoint: iteration=155
+bot start mode=paper symbol=EURUSD tf=H1 bridge=http://localhost:8080
+bot stop iterations=450 positions=0
+[2026-04-25T14:02:14Z] Closed trades so far: 2
+[2026-04-25T14:02:14Z] Performance snapshot:
+  trade_count: 0
+  sharpe: 0.0
+  max_drawdown: 0.0
+  win_rate: 0.0
+  profit_factor: 0.0
+[2026-04-25T14:02:14Z] Cycle 1 complete. Restarting in 5s...
+[2026-04-25T14:02:19Z] --- Cycle 2 ---
+[2026-04-25T14:02:19Z] Starting bot (paper, 300s)...
+resumed from checkpoint: iteration=450
+bot start mode=paper symbol=EURUSD tf=H1 bridge=http://localhost:8080
+bot stop iterations=745 positions=0
+[2026-04-25T14:07:20Z] Closed trades so far: 2
+[2026-04-25T14:07:20Z] Performance snapshot:
+  trade_count: 0
+  sharpe: 0.0
+  max_drawdown: 0.0
+  win_rate: 0.0
+  profit_factor: 0.0
+[2026-04-25T14:07:20Z] Cycle 2 complete. Restarting in 5s...
+[2026-04-25T14:07:25Z] --- Cycle 3 ---
+[2026-04-25T14:07:25Z] Starting bot (paper, 300s)...
+resumed from checkpoint: iteration=745
+bot start mode=paper symbol=EURUSD tf=H1 bridge=http://localhost:8080
+bot stop iterations=1040 positions=0
+[2026-04-25T14:12:27Z] Closed trades so far: 2
+[2026-04-25T14:12:27Z] Running autoresearch (50 iterations)...
+autoresearch: sharpe=4.2327 iterations=5 decision=converged
+[2026-04-25T14:12:30Z] Performance snapshot:
+  trade_count: 0
+  sharpe: 0.0
+  max_drawdown: 0.0
+  win_rate: 0.0
+  profit_factor: 0.0
+[2026-04-25T14:12:30Z] Cycle 3 complete. Restarting in 5s...
+[2026-04-25T14:12:35Z] --- Cycle 4 ---
+[2026-04-25T14:12:35Z] Starting bot (paper, 300s)...
+resumed from checkpoint: iteration=1040
+bot start mode=paper symbol=EURUSD tf=H1 bridge=http://localhost:8080
+bot stop iterations=1336 positions=0
+[2026-04-25T14:17:36Z] Closed trades so far: 2
+[2026-04-25T14:17:36Z] Performance snapshot:
+  trade_count: 0
+  sharpe: 0.0
+  max_drawdown: 0.0
+  win_rate: 0.0
+  profit_factor: 0.0
+[2026-04-25T14:17:36Z] Cycle 4 complete. Restarting in 5s...
+[2026-04-25T14:17:41Z] --- Cycle 5 ---
+[2026-04-25T14:17:41Z] Starting bot (paper, 300s)...
+resumed from checkpoint: iteration=1336
+bot start mode=paper symbol=EURUSD tf=H1 bridge=http://localhost:8080
+bot stop iterations=1632 positions=0
+[2026-04-25T14:22:42Z] Closed trades so far: 2
+[2026-04-25T14:22:42Z] Performance snapshot:
+  trade_count: 0
+  sharpe: 0.0
+  max_drawdown: 0.0
+  win_rate: 0.0
+  profit_factor: 0.0
+[2026-04-25T14:22:42Z] Cycle 5 complete. Restarting in 5s...
+[2026-04-25T14:22:47Z] --- Cycle 6 ---
+[2026-04-25T14:22:47Z] Starting bot (paper, 300s)...
+resumed from checkpoint: iteration=1632
+bot start mode=paper symbol=EURUSD tf=H1 bridge=http://localhost:8080
+bot stop iterations=1928 positions=0
+[2026-04-25T14:27:48Z] Closed trades so far: 2
+[2026-04-25T14:27:48Z] Running autoresearch (50 iterations)...
+autoresearch: sharpe=4.2327 iterations=5 decision=converged
+[2026-04-25T14:27:51Z] Performance snapshot:
+  trade_count: 0
+  sharpe: 0.0
+  max_drawdown: 0.0
+  win_rate: 0.0
+  profit_factor: 0.0
+[2026-04-25T14:27:51Z] Cycle 6 complete. Restarting in 5s...
+[2026-04-25T14:27:56Z] --- Cycle 7 ---
+[2026-04-25T14:27:56Z] Starting bot (paper, 300s)...
+resumed from checkpoint: iteration=1928
+bot start mode=paper symbol=EURUSD tf=H1 bridge=http://localhost:8080

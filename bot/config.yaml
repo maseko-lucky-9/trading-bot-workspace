@@ -1,0 +1,29 @@
+bridge:
+  # Path where macOS can read files written by the MT5 EA
+  # After UTM shared folder setup, this will be the mount point
+  shared_folder: "/Volumes/mt5bridge"
+  heartbeat_timeout: 10   # seconds before connection considered lost
+
+bot:
+  mode: "paper"           # paper | live  (NEVER change to live without --confirm-live flag)
+  instruments:
+    - "EURUSD"
+    - "GBPUSD"
+  timeframe: "H1"
+  log_level: "INFO"
+
+risk:
+  max_risk_per_trade: 0.01       # 1% of equity per trade
+  kelly_fraction: 0.25           # Quarter Kelly (conservative start)
+  daily_loss_limit: 0.02         # 2% daily hard stop
+  trailing_dd_warn: 0.10         # 10% DD → reduce position 30%
+  trailing_dd_reduce: 0.15       # 15% DD → reduce position 50%
+  trailing_dd_halt: 0.20         # 20% DD → halt all trading
+
+autoresearch:
+  target_sharpe: 1.5
+  max_drawdown_guard: 0.05
+  min_win_rate_guard: 0.43   # synthetic data ceiling; raise to 0.45 once real MT5 H1 history flows in
+  iterations: 50
+  metric_command: "python backtest/engine.py --metric sharpe"
+  guard_command: "python backtest/engine.py --guard"

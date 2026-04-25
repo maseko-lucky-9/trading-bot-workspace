@@ -1,0 +1,13 @@
+{
+  "iteration": 6,
+  "positions": [],
+  "performance_summary": {
+    "trade_count": 0,
+    "sharpe": 0.0,
+    "max_drawdown": 0.0,
+    "win_rate": 0.0,
+    "profit_factor": 0.0
+  },
+  "strategy_params": {},
+  "timestamp": "2026-04-25T13:37:00.949278+00:00"
+}

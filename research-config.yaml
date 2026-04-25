@@ -1,0 +1,198 @@
+_meta:
+  generated_at: "2026-04-24T10:30:00Z"
+  pipeline_version: "1.0"
+  krq_count: 5
+  claims_count: 3
+  slug: "mt5-autonomous-trading-bot-for-apple-silicon"
+  phase_0a_status: complete
+
+research:
+  objective: >
+    Design a full autonomous trading bot for MetaTrader 5 (MT5), optimized for
+    Apple Silicon (M5 Pro, 24GB RAM), trained on domain knowledge from an Obsidian
+    vault and iteratively self-improved using structured research and error-correction
+    frameworks.
+
+  topic: "MT5 Autonomous Trading Bot for Apple Silicon"
+
+  krqs:
+    - "KRQ1: What are the viable methods to connect Python on macOS to MT5 running in a Windows environment, and what are the trade-offs of each approach?"
+    - "KRQ2: Which backtesting frameworks are ARM-native or perform well on Apple Silicon, and how do they compare in speed, features, and ease of use?"
+    - "KRQ3: What architectures exist for self-improving trading bots that iterate on strategy parameters using mechanical metrics?"
+    - "KRQ4: What risk management frameworks and production safeguards are standard for autonomous trading systems?"
+    - "KRQ5: What are the memory and CPU optimization patterns for running a trading bot + backtesting loop concurrently on a 24GB unified memory system?"
+
+  scope:
+    in_scope:
+      - Python MT5 integration on macOS (Wine alternatives, socket bridges, ZMQ)
+      - ARM-native ML/data libraries (NumPy, Pandas, PyTorch MPS, scikit-learn)
+      - Vectorised backtesting frameworks (VectorBT, Backtrader, Zipline-reloaded)
+      - Self-improving trading loops (Bayesian optimisation, evolutionary algorithms)
+      - Risk management frameworks (Kelly criterion, ATR sizing, drawdown controls)
+      - Production safeguards (circuit breakers, order deduplication, fail-safes)
+    out_of_scope:
+      - Windows-only solutions without macOS bridge
+      - Manual trading strategies (must be fully autonomous)
+      - High-frequency trading (< 1s latency requirements)
+      - Non-MT5 broker platforms
+    nice_to_have:
+      - RL-based strategy adaptation
+      - Multi-asset correlation-aware portfolio management
+
+  audience: "senior developer building a production trading system"
+
+  decision_context: >
+    Building a personal autonomous trading bot that runs 24/7 on a MacBook Pro M5 Pro.
+    Must use MT5 broker connection. Goal is Sharpe > 1.5, max drawdown < 5%.
+
+  claims_to_validate:
+    - id: C1
+      claim: "MetaTrader5 Python library only works on Windows"
+      source: "MetaTrader5 documentation"
+      expected_verdict: CORROBORATED
+    - id: C2
+      claim: "ZMQ bridges can reliably connect Python on macOS to MT5 on Windows VM"
+      source: "Community forums"
+      expected_verdict: CORROBORATED
+    - id: C3
+      claim: "VectorBT provides faster backtesting than Backtrader on Apple Silicon"
+      source: "Assumed"
+      expected_verdict: UNVERIFIED
+
+  collection_schema:
+    required_fields:
+      - {name: source, type: string, description: "Tool or origin that produced this entry"}
+      - {name: url, type: string, description: "Source URL. Must be a valid URI."}
+      - {name: title, type: string, description: "Result title or document heading"}
+      - {name: summary, type: string, description: "2-3 sentence synopsis. Never verbatim >15 words."}
+      - {name: date, type: string, description: "ISO date or empty string"}
+      - {name: provenance, type: object, description: "query, tool, collection_date, access_method"}
+    optional_fields: []
+
+  extraction_dimensions:
+    - mt5_bridge_architectures
+    - backtesting_framework_comparison
+    - self_improvement_methodologies
+    - risk_management_patterns
+    - apple_silicon_optimization
+    - production_safeguards
+
+  scoring_rubric:
+    dimensions:
+      - {name: evidence_strength, weight: 30, guide: "How well-supported by primary data, benchmarks, or production use cases?"}
+      - {name: relevance, weight: 30, guide: "How directly does this address MT5+macOS+autonomous trading?"}
+      - {name: recency, weight: 20, guide: "Prefer data from last 1-2 years. Apple Silicon tooling evolves rapidly."}
+      - {name: actionability, weight: 20, guide: "Can this be implemented in the trading bot without further research?"}
+
+  taxonomy:
+    categories:
+      - mt5_integration
+      - backtesting
+      - strategy_optimization
+      - risk_management
+      - system_architecture
+      - performance_tuning
+
+  scope_dimensions:
+    - platform (macOS ARM vs Windows bridge)
+    - latency_class (intraday vs swing vs position)
+    - complexity (simple rules vs ML-based)
+
+  sources:
+    tiers:
+      T1:
+        tools: [websearch, webfetch, exa, gemini]
+        budget_weight: 60
+      T2:
+        tools: [firecrawl]
+        budget_weight: 30
+      T3:
+        tools: [playwright]
+        budget_weight: 10
+    required: []
+
+  report:
+    template: technical-assessment
+    audience_tier: technical
+    tone: formal
+    output_format: markdown
+
+  constraints:
+    query_budget: 120
+    query_weights: [60, 30, 10]
+    token_budget: 15000
+    time_budget: ""
+    budget_limit: 0
+
+  output:
+    base_path: /Users/ltmas/trading-bot-workspace/research
+    knowledge_system: filesystem
+
+krq_validation:
+  - id: KRQ1
+    text: "What are the viable methods to connect Python on macOS to MT5 running in a Windows environment, and what are the trade-offs of each approach?"
+    answerable: true
+    scoped: true
+    verifiable: true
+    acceptance_criteria: "At least 3 distinct bridge methods identified with latency/reliability trade-offs documented"
+  - id: KRQ2
+    text: "Which backtesting frameworks are ARM-native or perform well on Apple Silicon, and how do they compare in speed, features, and ease of use?"
+    answerable: true
+    scoped: true
+    verifiable: true
+    acceptance_criteria: "At least 3 frameworks benchmarked with feature comparison table"
+  - id: KRQ3
+    text: "What architectures exist for self-improving trading bots that iterate on strategy parameters using mechanical metrics?"
+    answerable: true
+    scoped: true
+    verifiable: true
+    acceptance_criteria: "At least 2 documented architectures with iteration loop design"
+  - id: KRQ4
+    text: "What risk management frameworks and production safeguards are standard for autonomous trading systems?"
+    answerable: true
+    scoped: true
+    verifiable: true
+    acceptance_criteria: "At least 5 safeguards documented with implementation patterns"
+  - id: KRQ5
+    text: "What are the memory and CPU optimization patterns for running a trading bot + backtesting loop concurrently on a 24GB unified memory system?"
+    answerable: true
+    scoped: true
+    verifiable: true
+    acceptance_criteria: "Memory budget allocation documented with parallelism patterns"
+
+disambiguation:
+  - term: "MT5"
+    resolved: "MetaTrader 5 (trading platform)"
+    alternatives_rejected: ["MobileNet v5", "any other MT5 acronym"]
+  - term: "ARM"
+    resolved: "ARM64/AArch64 CPU architecture (Apple Silicon)"
+    alternatives_rejected: ["ARM Holdings company", "adjustable-rate mortgage"]
+  - term: "bridge"
+    resolved: "Software bridge connecting macOS Python to Windows MT5 (socket/ZMQ/RPC)"
+    alternatives_rejected: ["network bridge", "design pattern bridge"]
+  - term: "Sharpe"
+    resolved: "Sharpe ratio (risk-adjusted return metric)"
+    alternatives_rejected: ["Sharpe (person name)"]
+
+claims_register:
+  - id: C1
+    claim: "MetaTrader5 Python library only works on Windows"
+    source: "MetaTrader5 documentation"
+    expected_verdict: CORROBORATED
+    actual_verdict: PENDING
+    supporting_citations: []
+    notes: ""
+  - id: C2
+    claim: "ZMQ bridges can reliably connect Python on macOS to MT5 on Windows VM"
+    source: "Community forums"
+    expected_verdict: CORROBORATED
+    actual_verdict: PENDING
+    supporting_citations: []
+    notes: ""
+  - id: C3
+    claim: "VectorBT provides faster backtesting than Backtrader on Apple Silicon"
+    source: "Assumed"
+    expected_verdict: UNVERIFIED
+    actual_verdict: PENDING
+    supporting_citations: []
+    notes: ""

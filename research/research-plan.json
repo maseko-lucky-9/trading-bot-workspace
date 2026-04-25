@@ -1,0 +1,67 @@
+{
+  "objective": "Design a full autonomous trading bot for MetaTrader 5 (MT5), optimized for Apple Silicon (M5 Pro, 24GB RAM), trained on domain knowledge from an Obsidian vault and iteratively self-improved using structured research and error-correction frameworks.",
+  "slug": "mt5-autonomous-trading-bot-for-apple-silicon",
+  "created_at": "2026-04-24T10:30:00Z",
+  "krqs": [
+    {
+      "id": "KRQ1",
+      "title": "What are the viable methods to connect Python on macOS to MT5 running in a Windows environment, and what are the trade-offs of each approach?",
+      "acceptance_criteria": "At least 3 distinct bridge methods identified with latency/reliability trade-offs documented",
+      "status": "pending",
+      "phase_assigned": 1,
+      "deps": [],
+      "findings_count": 0,
+      "confidence": null
+    },
+    {
+      "id": "KRQ2",
+      "title": "Which backtesting frameworks are ARM-native or perform well on Apple Silicon, and how do they compare in speed, features, and ease of use?",
+      "acceptance_criteria": "At least 3 frameworks benchmarked with feature comparison table",
+      "status": "pending",
+      "phase_assigned": 1,
+      "deps": [],
+      "findings_count": 0,
+      "confidence": null
+    },
+    {
+      "id": "KRQ3",
+      "title": "What architectures exist for self-improving trading bots that iterate on strategy parameters using mechanical metrics?",
+      "acceptance_criteria": "At least 2 documented architectures with iteration loop design",
+      "status": "pending",
+      "phase_assigned": 1,
+      "deps": [],
+      "findings_count": 0,
+      "confidence": null
+    },
+    {
+      "id": "KRQ4",
+      "title": "What risk management frameworks and production safeguards are standard for autonomous trading systems?",
+      "acceptance_criteria": "At least 5 safeguards documented with implementation patterns",
+      "status": "pending",
+      "phase_assigned": 1,
+      "deps": [],
+      "findings_count": 0,
+      "confidence": null
+    },
+    {
+      "id": "KRQ5",
+      "title": "What are the memory and CPU optimization patterns for running a trading bot + backtesting loop concurrently on a 24GB unified memory system?",
+      "acceptance_criteria": "Memory budget allocation documented with parallelism patterns",
+      "status": "pending",
+      "phase_assigned": 1,
+      "deps": [],
+      "findings_count": 0,
+      "confidence": null
+    }
+  ],
+  "phases": {
+    "0a": "complete",
+    "0b": "complete",
+    "0c": "complete",
+    "1": "complete",
+    "2": "pending",
+    "3": "pending",
+    "4": "pending",
+    "5": "pending"
+  }
+}

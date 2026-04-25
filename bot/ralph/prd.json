@@ -1,0 +1,220 @@
+{
+  "project": "MT5AutoTradingBot",
+  "branchName": "ralph/trading-bot-core",
+  "description": "Autonomous MT5 Trading Bot \u2014 10 core stories from bridge to live trading",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "MT5 HTTP Bridge Client",
+      "description": "As the bot, I need a Python client that connects to the HTTP bridge server, retrieves live ticks, and sends order commands so that all downstream modules have a reliable market data and execution interface.",
+      "acceptanceCriteria": [
+        "BridgeClient class in core/bridge/client.py with methods: connect(), get_tick(symbol), get_account(), send_order(symbol, side, volume, sl, tp)",
+        "connect() returns True when bridge server at 192.168.64.1:8080 is reachable with heartbeat < 10s",
+        "get_tick() returns dict with keys: symbol, bid, ask, spread, time",
+        "send_order() posts to /command endpoint and returns order result dict",
+        "Heartbeat polling loop with configurable interval (default 5s), raises BridgeDisconnected on timeout",
+        "Unit tests using responses mock \u2014 no live bridge required to run tests",
+        "python -m pytest core/bridge/test_client.py passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "depends_on": [],
+      "notes": "Bridge server is already implemented at core/bridge/http_server.py. Client must target 192.168.64.1:8080 (UTM host IP). Use requests library. File-based IPC client is at core/bridge/mt5_client.py \u2014 new HTTP client is separate."
+    },
+    {
+      "id": "US-002",
+      "title": "Paper Trading Mode",
+      "description": "As the bot, I need a paper trading engine that simulates order fills, tracks open positions and closed P&L, and honours risk limits without touching real money.",
+      "acceptanceCriteria": [
+        "PaperBroker class in core/execution/paper_broker.py implementing the same interface as a live broker",
+        "place_order(symbol, side, volume, sl, tp) fills immediately at current bid/ask with configurable slippage",
+        "close_position(ticket) marks position closed and records realised P&L",
+        "get_positions() returns list of open positions with unrealised P&L",
+        "get_account() returns equity, balance, margin, free_margin",
+        "Daily loss limit enforced: raises DailyLossLimitReached when drawdown exceeds config value",
+        "State persisted to bridge_data/paper_state.json on every change",
+        "python -m pytest core/execution/test_paper_broker.py passes"
+      ],
+      "priority": 2,
+      "depends_on": [
+        "US-001"
+      ],
+      "notes": "Config lives in config.yaml under bot.mode and risk.*. Paper mode is the default (bot.mode: paper). Never switch to live without --confirm-live CLI flag.",
+      "passes": true
+    },
+    {
+      "id": "US-003",
+      "title": "Historical Data Fetcher",
+      "description": "As the strategy engine, I need OHLCV data fetched from MT5 via the bridge and cached to disk so backtesting and indicator computation do not hammer the bridge on every run.",
+      "acceptanceCriteria": [
+        "HistoricalDataFetcher class in core/data/fetcher.py",
+        "fetch(symbol, timeframe, count) returns pandas DataFrame with columns: time, open, high, low, close, volume",
+        "fetch() queries /history endpoint on HTTP bridge",
+        "Results cached to bridge_data/history/{symbol}_{timeframe}.parquet using pyarrow",
+        "Cache is valid for 1 hour for H1 data; re-fetches automatically when stale",
+        "fetch_range(symbol, tf, start_dt, end_dt) paginates requests to bridge and merges results",
+        "python -m pytest core/data/test_fetcher.py passes with mocked bridge responses"
+      ],
+      "priority": 3,
+      "depends_on": [
+        "US-001"
+      ],
+      "notes": "Timeframe values match MT5 constants: M1=1, M5=5, M15=15, H1=60, H4=240, D1=1440. Primary instruments are EURUSD and GBPUSD at H1. Parquet preferred over CSV for speed.",
+      "passes": true
+    },
+    {
+      "id": "US-004",
+      "title": "Trend Following Strategy (EMA Crossover)",
+      "description": "As the bot, I need an EMA crossover strategy that generates BUY/SELL signals from OHLCV data so the execution engine has clear entry triggers with stop levels.",
+      "acceptanceCriteria": [
+        "EMACrossoverStrategy class in core/strategy/ema_crossover.py",
+        "Constructor accepts fast_period (default 9), slow_period (default 21), atr_period (default 14)",
+        "generate_signal(df) returns Signal namedtuple: side ('BUY'|'SELL'|None), entry_price, sl_price, tp_price, confidence",
+        "BUY signal when fast EMA crosses above slow EMA on latest completed candle",
+        "SELL signal when fast EMA crosses below slow EMA on latest completed candle",
+        "SL placed at entry \u00b1 1.5 * ATR(14); TP at entry \u00b1 3.0 * ATR(14) (2:1 R:R)",
+        "No signal generated if spread > 2.5 * average spread (filter noise)",
+        "python -m pytest core/strategy/test_ema_crossover.py passes with synthetic OHLCV data"
+      ],
+      "priority": 4,
+      "depends_on": [
+        "US-003"
+      ],
+      "notes": "All indicator math must use pandas/numpy only \u2014 no TA-Lib dependency. ATR formula: Wilder smoothing (EMA with alpha=1/n). Knowledge base at research/knowledge-base.md has EMA and ATR formulas.",
+      "passes": true
+    },
+    {
+      "id": "US-005",
+      "title": "Risk Manager",
+      "description": "As the bot, I need a risk manager that calculates position size from ATR and equity, enforces the 1% per-trade rule, and halts trading when daily loss or drawdown thresholds are breached.",
+      "acceptanceCriteria": [
+        "RiskManager class in core/risk/manager.py",
+        "calculate_size(symbol, entry, sl, equity) returns lot size rounded to 0.01, capped at 1% equity risk",
+        "Kelly fraction applied: size *= config.risk.kelly_fraction (default 0.25)",
+        "check_daily_loss(account) returns True if daily P&L <= -config.risk.daily_loss_limit * equity",
+        "check_drawdown(account) returns 'warn' | 'reduce' | 'halt' | 'ok' per thresholds in config.yaml",
+        "get_position_adjustment(drawdown_pct) returns multiplier: 1.0 | 0.7 | 0.5 | 0.0",
+        "All thresholds read from config.yaml (never hardcoded)",
+        "python -m pytest core/risk/test_manager.py passes"
+      ],
+      "priority": 5,
+      "depends_on": [
+        "US-001",
+        "US-002"
+      ],
+      "notes": "Config thresholds: trailing_dd_warn=0.10, trailing_dd_reduce=0.15, trailing_dd_halt=0.20. Pip value for EURUSD: 10 USD per standard lot per pip. Use 0.0001 as pip size for 5-digit quotes.",
+      "passes": true
+    },
+    {
+      "id": "US-006",
+      "title": "Performance Tracker",
+      "description": "As the bot operator, I need a performance tracker that computes Sharpe ratio, max drawdown, and win rate from closed trades so I can evaluate strategy quality.",
+      "acceptanceCriteria": [
+        "PerformanceTracker class in core/performance/tracker.py",
+        "record_trade(trade_dict) appends to trades list and updates running stats",
+        "sharpe_ratio() returns annualised Sharpe using daily returns; returns None if < 30 trades",
+        "max_drawdown() returns peak-to-trough drawdown as a positive decimal (0.05 = 5%)",
+        "win_rate() returns fraction of profitable closed trades",
+        "profit_factor() returns gross profit / gross loss",
+        "to_dict() returns all metrics as JSON-serialisable dict",
+        "save(path) persists state to JSON; load(path) restores from JSON",
+        "python -m pytest core/performance/test_tracker.py passes"
+      ],
+      "priority": 6,
+      "depends_on": [
+        "US-002"
+      ],
+      "notes": "Sharpe target from config: autoresearch.target_sharpe = 1.5. Max drawdown guard: autoresearch.max_drawdown_guard = 0.05. Win rate guard: autoresearch.min_win_rate_guard = 0.45. Use 252 trading days for annualisation.",
+      "passes": true
+    },
+    {
+      "id": "US-007",
+      "title": "Autoresearch Loop (8-Phase Engine)",
+      "description": "As the bot, I need an autonomous research loop that iterates strategy parameters, runs backtests, checks guard conditions, and persists the best parameter set so strategy quality improves without human input.",
+      "acceptanceCriteria": [
+        "AutoresearchEngine class in autoresearch/engine.py",
+        "8 phases: INIT, DATA_FETCH, PARAM_SAMPLE, BACKTEST, GUARD_CHECK, RECORD, SELECT_BEST, PERSIST",
+        "run(iterations=50) executes the full loop for n iterations",
+        "PARAM_SAMPLE uses Optuna TPE sampler over: fast_period [5,20], slow_period [15,50], atr_mult [1.0,3.0]",
+        "GUARD_CHECK rejects any parameter set where Sharpe < 1.5 OR max_dd > 5% OR win_rate < 45%",
+        "Best parameters saved to autoresearch/best_params.json on every improvement",
+        "Progress logged to autoresearch/research_log.jsonl (one JSON line per iteration)",
+        "python -m pytest autoresearch/test_engine.py passes with mock backtest"
+      ],
+      "priority": 7,
+      "depends_on": [
+        "US-003",
+        "US-004",
+        "US-005",
+        "US-006"
+      ],
+      "notes": "Backtest command from config: autoresearch.metric_command. Guard command: autoresearch.guard_command. Use subprocess to invoke backtest engine if running CLI variant. Optuna must be installed (already in requirements.txt).",
+      "passes": true
+    },
+    {
+      "id": "US-008",
+      "title": "Knowledge Base Integration",
+      "description": "As the autoresearch engine, I need to query the trading knowledge base for strategy rules, risk formulas, and indicator parameters so research iterations are anchored in domain expertise.",
+      "acceptanceCriteria": [
+        "KnowledgeBase class in knowledge/kb.py",
+        "load() reads research/knowledge-base.md and indexes sections by heading",
+        "query(topic) returns relevant section text for topics: 'ema', 'atr', 'risk', 'sharpe', 'position_sizing', 'drawdown'",
+        "get_strategy_params(strategy_name) returns dict of documented default parameters",
+        "get_risk_rules() returns structured dict of risk thresholds from KB",
+        "KnowledgeBase used by AutoresearchEngine to seed initial parameter bounds",
+        "python -m pytest knowledge/test_kb.py passes"
+      ],
+      "priority": 8,
+      "depends_on": [
+        "US-007"
+      ],
+      "notes": "Knowledge base file is at research/knowledge-base.md (written by Agent 1). Contains EMA crossover params, ATR formulas, Kelly criterion, Sharpe calculation. Parse markdown headings (##, ###) as section keys.",
+      "passes": true
+    },
+    {
+      "id": "US-009",
+      "title": "Checkpoint and Recovery System",
+      "description": "As the bot, I need to pickle full bot state (positions, P&L, best params, research log cursor) to disk so the bot can resume exactly where it left off after a crash or restart.",
+      "acceptanceCriteria": [
+        "CheckpointManager class in core/checkpoint/manager.py",
+        "save(state_dict, label='auto') pickles state to checkpoints/{timestamp}_{label}.pkl",
+        "load_latest() returns the most recent checkpoint dict or None if no checkpoints exist",
+        "rotate(keep=10) deletes oldest checkpoints beyond the keep limit",
+        "BotState dataclass in core/checkpoint/state.py with fields: positions, equity, daily_pnl, best_params, research_iteration, mode",
+        "Auto-checkpoint triggered every 5 minutes by a background thread",
+        "On startup, bot detects existing checkpoint and prompts user (or auto-loads in non-interactive mode)",
+        "python -m pytest core/checkpoint/test_manager.py passes"
+      ],
+      "priority": 9,
+      "depends_on": [
+        "US-002",
+        "US-006"
+      ],
+      "notes": "Checkpoint dir is at /Users/ltmas/trading-bot-workspace/checkpoints/. Use pickle for full fidelity; also write a JSON summary (non-sensitive fields only) alongside each pickle for quick inspection.",
+      "passes": true
+    },
+    {
+      "id": "US-010",
+      "title": "Live Trading Mode",
+      "description": "As the bot operator, I need a live trading mode that routes orders through the real MT5 bridge (not paper broker), enforces pre-flight checks, and provides a kill switch so real capital is protected.",
+      "acceptanceCriteria": [
+        "LiveBroker class in core/execution/live_broker.py implementing same interface as PaperBroker",
+        "Live mode requires --confirm-live CLI flag AND bot.mode=live in config.yaml (dual interlock)",
+        "Pre-flight checklist: bridge connected, account equity > 1000 USD, no open positions from previous crash, daily loss not already breached",
+        "pre_flight_check() returns (ok: bool, failures: list[str])",
+        "All live orders logged to logs/live_orders.jsonl with timestamp, symbol, side, volume, price, sl, tp, ticket",
+        "Emergency stop: kill_switch() closes all open positions via bridge and sets mode to paper",
+        "python -m pytest core/execution/test_live_broker.py passes with mock bridge"
+      ],
+      "priority": 10,
+      "depends_on": [
+        "US-001",
+        "US-002",
+        "US-005",
+        "US-009"
+      ],
+      "notes": "NEVER remove the --confirm-live interlock. Live broker re-uses BridgeClient from US-001. Config guard: if config.bot.mode != 'live' and --confirm-live not passed, raise LiveModeNotEnabled. The kill_switch must work even when bridge latency is high.",
+      "passes": true
+    }
+  ]
+}

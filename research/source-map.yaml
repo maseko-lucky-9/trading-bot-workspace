@@ -1,0 +1,129 @@
+_meta:
+  generated_at: "2026-04-24T10:35:00Z"
+  phase: 0b
+  total_available_tools: 5
+  total_unavailable_tools: 0
+  total_degraded_tools: 1
+
+tiers:
+  T1:
+    budget: 72  # 120 × 60%
+    tools:
+      websearch:
+        status: available
+        credibility:
+          institutional_authority: MEDIUM
+          methodology_transparency: inferred
+          recency: within-1yr
+        notes: "Anthropic native web search. Good for current MT5/Python compatibility info."
+      webfetch:
+        status: available
+        credibility:
+          institutional_authority: MEDIUM
+          methodology_transparency: inferred
+          recency: within-1yr
+        notes: "URL content extraction. Authority adjusted per fetched domain in Phase 2."
+      exa:
+        status: available
+        credibility:
+          institutional_authority: HIGH
+          methodology_transparency: inferred
+          recency: within-1yr
+        notes: "Semantic search with academic filter. Good for backtesting frameworks and quant papers."
+      gemini:
+        status: degraded
+        credibility:
+          institutional_authority: MEDIUM
+          methodology_transparency: inferred
+          recency: within-1yr
+        notes: "429 RESOURCE_EXHAUSTED - free tier quota exceeded. Budget redistributed to exa + websearch."
+        reason: "free_tier_429"
+  T2:
+    budget: 36  # 120 × 30%
+    tools:
+      firecrawl:
+        status: available
+        credibility:
+          institutional_authority: MEDIUM
+          methodology_transparency: inferred
+          recency: 1-3yr
+        notes: "Deep web search with content extraction. Good for GitHub repos and technical docs."
+  T3:
+    budget: 12  # 120 × 10%
+    tools:
+      playwright:
+        status: available
+        credibility:
+          institutional_authority: LOW
+          methodology_transparency: opaque
+          recency: within-1yr
+        notes: "Browser automation for dynamic content. Use for forum threads and interactive docs."
+
+priority_matrix:
+  KRQ1:  # MT5-macOS bridge methods
+    websearch: 3
+    webfetch: 3
+    exa: 2
+    firecrawl: 3
+    playwright: 2
+  KRQ2:  # Backtesting frameworks on Apple Silicon
+    websearch: 2
+    webfetch: 2
+    exa: 3
+    firecrawl: 3
+    playwright: 1
+  KRQ3:  # Self-improving trading bot architectures
+    websearch: 2
+    webfetch: 2
+    exa: 3
+    firecrawl: 2
+    playwright: 1
+  KRQ4:  # Risk management frameworks and safeguards
+    websearch: 3
+    webfetch: 2
+    exa: 3
+    firecrawl: 2
+    playwright: 1
+  KRQ5:  # Apple Silicon memory/CPU optimization
+    websearch: 2
+    webfetch: 3
+    exa: 2
+    firecrawl: 2
+    playwright: 1
+
+budget_redistribution:
+  - source: T1.gemini
+    reason: "degraded (429 quota exhausted)"
+    redistributed_to: T1.exa, T1.websearch
+    queries_moved: 10
+
+domain_notes: |
+  Trading/finance domain - MQL5.com forums and PyPI are authoritative for MT5 Python integration.
+  GitHub repos (silicon-metatrader5, vectorbt, backtrader) are primary for Apple Silicon compatibility.
+  Academic papers via Exa for quant methods (de Prado, Chan).
+
+required_sources_check:
+  - tool: websearch
+    required: false
+    status: available
+  - tool: exa
+    required: false
+    status: available
+  - tool: firecrawl
+    required: false
+    status: available
+
+expected_collection_files:
+  - path: "raw/t1-general.json"
+    tier: T1
+    tools: [websearch, webfetch, exa]
+    krqs: [KRQ1, KRQ2, KRQ3, KRQ4, KRQ5]
+  - path: "raw/t2-deep.json"
+    tier: T2
+    tools: [firecrawl]
+    krqs: [KRQ1, KRQ2, KRQ3, KRQ4, KRQ5]
+  - path: "raw/t3-browser.json"
+    tier: T3
+    tools: [playwright]
+    krqs: [KRQ1]
+    status: conditional

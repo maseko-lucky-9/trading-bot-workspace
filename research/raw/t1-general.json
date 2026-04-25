@@ -1,0 +1,253 @@
+{
+  "_meta": {
+    "tier": "T1",
+    "tools_used": ["exa", "websearch", "firecrawl"],
+    "collection_date": "2026-04-24",
+    "entries": 28
+  },
+  "entries": [
+    {
+      "krq": "KRQ1",
+      "source": "exa",
+      "url": "https://github.com/bahadirumutiscimen/silicon-metatrader5",
+      "title": "silicon-metatrader5: MetaTrader 5 Solution for macOS Silicon M Series",
+      "summary": "End-to-end solution for MT5 on Apple Silicon using Docker + Wine + QEMU x86_64 emulation. Provides custom Python client 'siliconmetatrader5' that bypasses native MetaTrader5 library limitations. Uses Colima for x86_64 emulation, avoiding Rosetta instability.",
+      "date": "2025-12-15",
+      "provenance": {"query": "Python trading bot MetaTrader 5 macOS Apple Silicon bridge", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ1",
+      "source": "exa",
+      "url": "https://novaquantlab.com/metatrader-5-python-integration-2026-best-practices-for-algorithmic-trading/",
+      "title": "MetaTrader 5 Python Integration: 2026 Best Practices",
+      "summary": "ZeroMQ architecture with dual socket patterns: PUB/SUB for market data, REQ/REP for order execution. MQL5 EA acts as ZMQ server with C++ DLL wrapper. Heartbeat protocol every 5s with 500ms timeout for connection health.",
+      "date": "2026-04-15",
+      "provenance": {"query": "Python trading bot MetaTrader 5 macOS Apple Silicon bridge", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ1",
+      "source": "exa",
+      "url": "https://github.com/ding9736/MT5BridgeAPI",
+      "title": "MT5RemoteBridgeAPI - Production-grade MT5 ZeroMQ Bridge",
+      "summary": "Military-grade security using ZAP + Curve25519 encryption. Microsecond latency, async messaging. Full Python client with test suite. Requires Allow DLL imports in MT5.",
+      "date": "2025-09-06",
+      "provenance": {"query": "Python trading bot MetaTrader 5 macOS Apple Silicon bridge", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ1",
+      "source": "exa",
+      "url": "https://github.com/callmeartan/mt5-mac-data-bridge",
+      "title": "mt5-mac-data-bridge: JSON File IPC Bridge",
+      "summary": "macOS-native bridge using local JSON file IPC instead of sockets. EA writes price/tick/orderbook JSON files; Python reads and writes commands.json. No Wine, no Docker required. Production-friendly with structured logs.",
+      "date": "2025-08-09",
+      "provenance": {"query": "Python trading bot MetaTrader 5 macOS Apple Silicon bridge", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ1",
+      "source": "exa",
+      "url": "https://www.tyolab.com/blog/2024-05-17-building-a-trading-gateway-with-mt5-python-library",
+      "title": "Building a Trading Gateway with MT5 Python Library",
+      "summary": "Trading gateway architecture using official MetaTrader5 Python package as relay. Components: strategy, indicator updater, trading gateway, message queue (ZeroMQ/RabbitMQ/Kafka). Requires MT5 terminal running in foreground.",
+      "date": "2024-05-27",
+      "provenance": {"query": "Python trading bot MetaTrader 5 macOS Apple Silicon bridge", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ1",
+      "source": "firecrawl",
+      "url": "https://github.com/dingmaotu/mql-zmq",
+      "title": "mql-zmq: Complete ZeroMQ binding for MQL4/5",
+      "summary": "Complete ZMQ binding for MQL4/5 language. Enables traders to build cross-platform communication between MT4/5 and external applications.",
+      "date": "N/A",
+      "provenance": {"query": "site:github.com MT5 Python bridge macOS socket ZMQ", "tool": "firecrawl", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ1",
+      "source": "websearch",
+      "url": "https://pypi.org/project/metatrader5/",
+      "title": "metatrader5 PyPI Package",
+      "summary": "Official MetaTrader5 package only provides Windows distributions (win_amd64 wheels). Native installation on macOS fails - no macOS version available.",
+      "date": "N/A",
+      "provenance": {"query": "MT5 Python library macOS compatibility 2026", "tool": "websearch", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ2",
+      "source": "exa",
+      "url": "https://medium.com/@trading.dude/battle-tested-backtesters-comparing-vectorbt-zipline-and-backtrader-for-financial-strategy-dee33d33a9e0",
+      "title": "Battle-Tested Backtesters: VectorBT, Zipline, Backtrader Comparison",
+      "summary": "VectorBT: vectorized, Numba JIT, millions of trades in under a second. Zipline: event-driven, pandas backend, slow on large datasets. Backtrader: flexible, stable, connects to real markets. VectorBT undisputed leader for speed.",
+      "date": "2025-06-13",
+      "provenance": {"query": "vectorbt backtrader zipline backtesting framework Python ARM Apple Silicon", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ2",
+      "source": "exa",
+      "url": "https://tildalice.io/backtrader-zipline-5-year-sp500-speed-memory-test/",
+      "title": "Backtrader vs Zipline: 5-Year S&P 500 Speed & Memory Test",
+      "summary": "M1 MacBook Pro benchmark: Zipline 4.2s vs Backtrader 15.6s, but Zipline peaks at 1.8GB RAM vs Backtrader's 600MB. At 20-year backtest: Zipline 14.3s/5.8GB vs Backtrader 54.1s/641MB. Crossover at 6-8 indicators.",
+      "date": "2026-03-09",
+      "provenance": {"query": "vectorbt backtrader zipline backtesting framework Python ARM Apple Silicon", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ2",
+      "source": "exa",
+      "url": "https://github.com/Alphabench/raptorbt",
+      "title": "RaptorBT: Rust backtesting engine with Python bindings",
+      "summary": "Rust + PyO3, drop-in VectorBT replacement. Apple Silicon benchmarks: 5800x faster than VectorBT on 1K bars (0.25ms vs 1460ms), 25x faster on 50K bars. 45x smaller disk footprint (<10MB vs 450MB).",
+      "date": "2026-01-28",
+      "provenance": {"query": "vectorbt backtrader zipline backtesting framework Python ARM Apple Silicon", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ2",
+      "source": "exa",
+      "url": "https://pineify.app/resources/blog/backtrader-vs-vectorbt-vs-pineify-python-trading-framework-comparison-guide",
+      "title": "Backtrader vs VectorBT: Python Trading Framework Comparison",
+      "summary": "VectorBT processes 1M orders in 70-100ms on M1. 1000 stocks × 10 years in under 1 minute. VectorBT: low memory (vectorized), high CPU (parallel). Backtrader: moderate (sequential, single-threaded).",
+      "date": "2025-12-18",
+      "provenance": {"query": "vectorbt backtrader zipline backtesting framework Python ARM Apple Silicon", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ2",
+      "source": "exa",
+      "url": "https://github.com/polakowo/vectorbt/issues/320",
+      "title": "VectorBT Apple Silicon M1 Installation",
+      "summary": "Installation requires Miniforge/Conda for Numba on ARM. 2025 solution: pyenv + Python 3.10 + poetry install vectorbt works on M2. Conda required for llvmlite/numba ARM wheels.",
+      "date": "2022-01-05",
+      "provenance": {"query": "vectorbt backtrader zipline backtesting framework Python ARM Apple Silicon", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ2",
+      "source": "exa",
+      "url": "https://autotradelab.com/blog/backtrader-vs-nautilusttrader-vs-vectorbt-vs-zipline-reloaded",
+      "title": "Backtrader vs NautilusTrader vs VectorBT vs Zipline-reloaded",
+      "summary": "NautilusTrader: Rust core, unified backtest+live, native risk controls. VectorBT: research powerhouse, zero live trading. Backtrader: flexible but slow at scale. Research-only: VectorBT/Zipline. Production: NautilusTrader.",
+      "date": "2025-09-02",
+      "provenance": {"query": "vectorbt backtrader zipline backtesting framework Python ARM Apple Silicon", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ3",
+      "source": "exa",
+      "url": "https://wire.insiderfinance.io/creating-a-self-improving-trading-bot-with-reinforcement-learning-308f7feb0f6a",
+      "title": "Creating a Self-Improving Trading Bot with Reinforcement Learning",
+      "summary": "RL trading: agent observes state, takes action (buy/sell/hold), receives reward, updates policy, repeats. PPO recommended (balances exploration/exploitation). Self-improvement via: online learning, retraining pipelines, adaptive reward functions.",
+      "date": "2026-04-05",
+      "provenance": {"query": "self-improving autonomous trading bot architecture Bayesian optimization evolutionary algorithm", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ3",
+      "source": "exa",
+      "url": "https://medium.com/@abatrek059/a-multi-agent-reinforcement-learning-evolutionary-and-bayesian-optimization-an-example-6e354fc4ab08",
+      "title": "Multi-Agent RL + Evolutionary + Bayesian Optimization",
+      "summary": "Two-layer architecture: Layer 1 = DRL agents with diverse reward functions. Layer 2 = EA/BO on Layer 1 outputs. BO builds Gaussian Process surrogate, uses acquisition function (EI, UCB) for exploration/exploitation. EA produces sparse allocations, BO produces smoother.",
+      "date": "2026-02-07",
+      "provenance": {"query": "self-improving autonomous trading bot architecture Bayesian optimization evolutionary algorithm", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ3",
+      "source": "exa",
+      "url": "https://mql5.com/en/articles/16971",
+      "title": "ETARE: Evolutionary Trading Algorithm with Reinforcement Learning",
+      "summary": "LSTM-based system with extinction mechanism: every 100 trades, removes unprofitable strategies. Adaptive learning with prioritized memory. Continuous trading loop with periodic strategy cleaning. PyTorch multi-layered backpropagation.",
+      "date": "2025-10-07",
+      "provenance": {"query": "self-improving autonomous trading bot architecture Bayesian optimization evolutionary algorithm", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ3",
+      "source": "exa",
+      "url": "https://the-algotrading-book-website.vercel.app/chapters/15-reinforcement-learning/267-population-based-training/",
+      "title": "Population Based Training for Trading (DeepMind PBT)",
+      "summary": "PBT combines random search + evolutionary methods in single training process. Poorly performing agents inherit weights/hyperparameters of better agents while exploring perturbations. Asynchronous operation. Fitness metric: Sharpe ratio or PnL.",
+      "date": "N/A",
+      "provenance": {"query": "self-improving autonomous trading bot architecture Bayesian optimization evolutionary algorithm", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ3",
+      "source": "exa",
+      "url": "https://www.mdpi.com/2227-7390/14/5/761",
+      "title": "Bayesian vs Evolutionary Optimization for Crypto Trading",
+      "summary": "TPE (via Optuna) for Bayesian optimization: models p(x|y), separates good/poor performance groups. DE (scipy) maintains population with mutation/crossover/selection. RL adaptive but computationally prohibitive for backtesting.",
+      "date": "N/A",
+      "provenance": {"query": "self-improving autonomous trading bot architecture Bayesian optimization evolutionary algorithm", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ4",
+      "source": "exa",
+      "url": "https://sharemarket.bot/portfolio-risk-management-for-automated-strategies-building-",
+      "title": "Portfolio Risk Management for Automated Strategies",
+      "summary": "Three-layer framework: trade-level, strategy-level, portfolio-level limits. Drawdown limits non-negotiable: daily loss, trailing drawdown stop, max strategy loss. Most important: portfolio-level drawdown + position sizing combined.",
+      "date": "2026-04-17",
+      "provenance": {"query": "algorithmic trading risk management framework Kelly criterion position sizing drawdown control", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ4",
+      "source": "exa",
+      "url": "https://medium.com/@tmapendembe_28659/risk-management-using-kelly-criterion-2eddcf52f50b",
+      "title": "Risk Management Using Kelly Criterion",
+      "summary": "Fractional Kelly (25-50% of full recommendation) significantly reduces volatility while capturing most growth. Full Kelly leads to 20-50% drawdowns. Recalculate daily (active) or weekly. Update Kelly % every 3-6 months with rolling lookback.",
+      "date": "2026-01-05",
+      "provenance": {"query": "algorithmic trading risk management framework Kelly criterion position sizing drawdown control", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ4",
+      "source": "exa",
+      "url": "https://arrowalgo.com/drawdown-management-algorithmic-trading/",
+      "title": "Drawdown Management in Algorithmic Trading",
+      "summary": "Max drawdown 20-25% before auto-pause. Position scaling: at 10% DD reduce 30%, at 15% reduce 50%, at 20% stop entirely. Circuit breakers prevent compounding losses. Strategy abandonment at DD bottom is the worst timing.",
+      "date": "2026-03-09",
+      "provenance": {"query": "algorithmic trading risk management framework Kelly criterion position sizing drawdown control", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ4",
+      "source": "exa",
+      "url": "https://quantbeckman.com/p/are-your-risk-controls-blind",
+      "title": "Risk Engine: Dynamic Circuit Breakers",
+      "summary": "Static thresholds fail in dynamic markets. Adaptive circuit breakers with dynamic window size based on volatility. Online meta-learning model for higher-order pattern detection. Balance false positives vs false negatives.",
+      "date": "2025-04-21",
+      "provenance": {"query": "algorithmic trading risk management framework Kelly criterion position sizing drawdown control", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ4",
+      "source": "exa",
+      "url": "https://www.quantbeckman.com/p/is-static-sizing-the-killer-of-your",
+      "title": "Risk Engine: Stochastic Position Sizing",
+      "summary": "StochasticPositionSizer: min/max contracts, drawdown_sensitivity (aggression of reduction), profit_smoothing (recent profit influence), recovery_rate (scaling back up). Dynamic sizing treats position size as a process, not formula.",
+      "date": "2025-04-22",
+      "provenance": {"query": "algorithmic trading risk management framework Kelly criterion position sizing drawdown control", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ4",
+      "source": "exa",
+      "url": "https://hackernoon.com/lite/why-expected-value-is-not-enough-in-production-trading-systems",
+      "title": "Why Expected Value Is Not Enough in Production Trading",
+      "summary": "Fractional Kelly (25% as hard constraint) + CVaR optimization (worst 5% scenarios). Track CVaR daily, not just PnL. Assume 30% parameter uncertainty. Kill-switches for anomalies. Explicit 'model is completely wrong' code paths.",
+      "date": "2026-01-22",
+      "provenance": {"query": "algorithmic trading risk management framework Kelly criterion position sizing drawdown control", "tool": "exa", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ5",
+      "source": "websearch",
+      "url": "https://www.pyquantnews.com/free-python-resources/python-in-high-frequency-trading-low-latency-techniques",
+      "title": "Python in High-Frequency Trading: Low-Latency Techniques",
+      "summary": "Asyncio for event loop, async I/O while waiting for network/disk. GIL limitation mitigated by multiprocessing or async. Multiprocessing for embarrassingly parallel tasks despite IPC overhead.",
+      "date": "N/A",
+      "provenance": {"query": "Python trading bot memory optimization Apple Silicon unified memory asyncio multiprocessing", "tool": "websearch", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ5",
+      "source": "websearch",
+      "url": "https://macgpu.com/en/blog/2026-mac-gpu-ai-inference-m5-vram-bottleneck-review.html",
+      "title": "2026 Mac GPU AI Inference: M5 Max Unified Memory Review",
+      "summary": "M5 Max unified memory eliminates VRAM bottleneck. Model weights should stay under 60% of total unified memory for macOS + KV cache + runtime headroom. MLX native on Apple Silicon in 2026.",
+      "date": "2026",
+      "provenance": {"query": "Python trading bot memory optimization Apple Silicon unified memory asyncio multiprocessing", "tool": "websearch", "collection_date": "2026-04-24"}
+    },
+    {
+      "krq": "KRQ5",
+      "source": "websearch",
+      "url": "https://github.com/aayushk68/Backtesting-Framework",
+      "title": "Modular Python Backtesting Framework with Threading + Multiprocessing",
+      "summary": "Threading for I/O-bound speedups (CSV loading). Multiprocessing for parameter optimization (CPU-bound). Calculation-intensive backtesting prefers multiprocessing over multithreading.",
+      "date": "N/A",
+      "provenance": {"query": "Python trading bot memory optimization Apple Silicon unified memory asyncio multiprocessing", "tool": "websearch", "collection_date": "2026-04-24"}
+    }
+  ]
+}
