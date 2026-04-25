@@ -205,9 +205,12 @@ def test_history_source_synthetic_before_live_ticks(client):
 
 
 def test_history_source_live_after_tick_push(client):
+    # After pushing a tick with OHLCV, source should include live data.
+    # When bars > live_count the endpoint pads with synthetic, so accept
+    # both "live" (bars <= live_count) and "live+synthetic" (padded).
     _tick_with_ohlcv(client)
     r = client.get("/history?symbol=EURUSD&timeframe=H1&bars=10")
-    assert r.json()["source"] == "live"
+    assert r.json()["source"] in ("live", "live+synthetic")
 
 
 def test_history_live_bar_ohlcv_matches_pushed_tick(client):
@@ -247,10 +250,11 @@ def test_history_new_bar_seals_previous(client):
         "h1_open": 1.105, "h1_high": 1.107, "h1_low": 1.104, "h1_close": 1.106,
     })
     data = client.get("/history?symbol=EURUSD&timeframe=H1&bars=10").json()
-    # Should have both bars: sealed bar1 + in-progress bar2
-    assert len(data["bars"]) == 2
-    assert data["bars"][0]["time"] == bar1_time
-    assert data["bars"][1]["time"] == bar2_time
+    # Both bars must appear in the result (padded with synthetic when needed).
+    # Check the last 2 bars match the expected live-bar times.
+    assert len(data["bars"]) == 10  # always returns exactly bars= count
+    assert data["bars"][-2]["time"] == bar1_time
+    assert data["bars"][-1]["time"] == bar2_time
 
 
 def test_history_bars_capped_at_requested_count(client):

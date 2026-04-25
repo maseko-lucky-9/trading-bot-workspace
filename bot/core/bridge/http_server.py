@@ -246,11 +246,21 @@ def get_history(
             if current:
                 real_bars.append(dict(current))
 
-    if real_bars:
-        # Return newest `bars` bars in ascending time order
-        return {"symbol": symbol, "timeframe": timeframe, "bars": real_bars[-bars:], "source": "live"}
-
     base_price = float(last_tick.get("bid") or 1.10000) or 1.10000
+
+    if real_bars:
+        if len(real_bars) >= bars:
+            # Enough live bars — serve pure live data
+            return {"symbol": symbol, "timeframe": timeframe,
+                    "bars": real_bars[-bars:], "source": "live"}
+        # Pad with synthetic history so strategy always has enough bars,
+        # then append all accumulated live bars at the tail.
+        n_synthetic = bars - len(real_bars)
+        synthetic = _synthetic_bars(symbol, timeframe, n_synthetic, base_price)
+        combined = synthetic + real_bars
+        return {"symbol": symbol, "timeframe": timeframe,
+                "bars": combined, "source": "live+synthetic"}
+
     out = _synthetic_bars(symbol, timeframe, bars, base_price)
     return {"symbol": symbol, "timeframe": timeframe, "bars": out, "source": "synthetic"}
 

@@ -31,9 +31,11 @@ def test_size_position_returns_positive_lots():
 
 
 def test_size_position_zero_balance():
+    # Zero balance → fall back to minimum lot (0.01) so the order reaches
+    # the broker rather than silently dropping.
     rm = RiskManager({})
     lots = rm.size_position("EURUSD", None, {"balance": 0.0}, _make_df())
-    assert lots == 0.0
+    assert lots == 0.01
 
 
 def test_breakers_halt_on_daily_loss():

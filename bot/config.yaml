@@ -5,12 +5,12 @@ bridge:
 bot:
   mode: "live"            # paper | live  (NEVER change to live without --confirm-live flag)
   instruments:
-    - "EURUSD"
-    - "GBPUSD"
+    - "USDJPY"
   timeframe: "H1"
   log_level: "INFO"
 
 risk:
+  min_equity: 0.0                # set to 0 for demo/test; raise to 1000 for production
   max_risk_per_trade: 0.01       # 1% of equity per trade
   kelly_fraction: 0.25           # Quarter Kelly (conservative start)
   daily_loss_limit: 0.02         # 2% daily hard stop

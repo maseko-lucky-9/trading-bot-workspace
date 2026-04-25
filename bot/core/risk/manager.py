@@ -64,7 +64,9 @@ class RiskManager:
         """
         balance = float((account or {}).get("balance", 0.0))
         if balance <= 0:
-            return 0.0
+            # Demo / zero-balance accounts: fall back to minimum lot so the
+            # order reaches the broker rather than silently dropping.
+            return LOT_STEP
         atr = _atr(df, period=14)
         if atr <= 0 or math.isnan(atr):
             return LOT_STEP

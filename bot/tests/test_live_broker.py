@@ -39,9 +39,10 @@ def test_place_order_delegates_to_bridge(connected_bridge):
     result = broker.place_order("EURUSD", "BUY", 0.01, sl=1.09, tp=1.12)
     connected_bridge.send_order.assert_called_once()
     call_args = connected_bridge.send_order.call_args[0][0]
-    assert call_args["action"] == "OPEN"
+    # EA expects action="BUY"/"SELL" directly — not "OPEN" + "type" field
+    assert call_args["action"] == "BUY"
     assert call_args["symbol"] == "EURUSD"
-    assert call_args["type"] == "BUY"
+    assert "type" not in call_args
     assert result["ticket"] == 42
 
 

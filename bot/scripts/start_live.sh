@@ -15,11 +15,13 @@ echo "Waiting for EA account data (up to ${MAX_WAIT}s)..."
 
 elapsed=0
 while true; do
+    acct_keys=$(curl -sf "${BRIDGE}/state" 2>/dev/null \
+        | python3 -c "import sys,json; d=json.load(sys.stdin); a=d.get('account',{}); print(len(a))" 2>/dev/null || echo "0")
     equity=$(curl -sf "${BRIDGE}/state" 2>/dev/null \
         | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('account',{}).get('equity',''))" 2>/dev/null || true)
 
-    if [[ -n "$equity" && "$equity" != "0.0" && "$equity" != "0" ]]; then
-        echo "Account confirmed: equity=${equity}"
+    if [[ "$acct_keys" -gt 0 ]]; then
+        echo "Account confirmed: equity=${equity} (min_equity=0.0 set in config)"
         break
     fi
 
@@ -29,7 +31,7 @@ while true; do
         exit 1
     fi
 
-    printf "  waiting... %ds (equity='%s')\n" "$elapsed" "$equity"
+    printf "  waiting... %ds (account fields=%s)\n" "$elapsed" "$acct_keys"
     sleep 5
     elapsed=$((elapsed + 5))
 done

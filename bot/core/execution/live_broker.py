@@ -55,10 +55,11 @@ class LiveBroker:
         sl: float = 0.0,
         tp: float = 0.0,
     ) -> dict:
+        # EA expects action="BUY" or "SELL" (not "OPEN") — matches PollCommand()
+        # handler in PythonBridgeHTTP.mq5 which dispatches on action directly.
         cmd = {
-            "action": "OPEN",
+            "action": side.upper(),
             "symbol": symbol,
-            "type": side,
             "volume": float(volume),
             "sl": float(sl),
             "tp": float(tp),
