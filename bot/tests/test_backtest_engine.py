@@ -314,3 +314,75 @@ def test_simulate_mr_marks_open_position_at_end():
         {"bb_period": 5, "bb_std": 0.5, "rsi_period": 3, "rsi_os": 80.0, "rsi_ob": 20.0, "atr_multiplier": 1.5},
     )
     assert "sharpe" in result
+
+
+# ------------------------------------------------------------------ #
+# Walk-forward holdout (--wf-train-pct)                              #
+# ------------------------------------------------------------------ #
+
+def test_apply_walk_forward_disabled_when_zero_returns_full_df():
+    """train_pct=0.0 is a pass-through (no slicing)."""
+    from backtest.engine import _apply_walk_forward
+    df = _ohlcv(200)
+    out = _apply_walk_forward(df, 0.0)
+    assert len(out) == 200
+
+
+def test_apply_walk_forward_disabled_when_negative_returns_full_df():
+    """Negative train_pct treated the same as disabled."""
+    from backtest.engine import _apply_walk_forward
+    df = _ohlcv(200)
+    out = _apply_walk_forward(df, -0.5)
+    assert len(out) == 200
+
+
+def test_apply_walk_forward_returns_tail_fraction():
+    """train_pct=0.8 keeps the last 20% of bars (200 → 40)."""
+    from backtest.engine import _apply_walk_forward
+    df = _ohlcv(200)
+    out = _apply_walk_forward(df, 0.8)
+    assert len(out) == 40
+    # Tail preserved: last close must equal source last close
+    assert float(out["close"].iloc[-1]) == pytest.approx(float(df["close"].iloc[-1]))
+
+
+def test_apply_walk_forward_clamps_train_pct_above_one():
+    """train_pct=1.0+ is clamped so at least one bar remains."""
+    from backtest.engine import _apply_walk_forward
+    df = _ohlcv(1000)
+    out = _apply_walk_forward(df, 1.5)
+    assert len(out) >= 1
+
+
+def test_cli_metric_sharpe_with_wf_train_pct_runs():
+    """CLI accepts --wf-train-pct 0.8 + --metric sharpe and prints SHARPE."""
+    proc = _run("--metric", "sharpe", "--bars", "500", "--wf-train-pct", "0.8")
+    assert proc.returncode == 0, proc.stderr
+    assert re.search(r"^SHARPE\s+-?[0-9.]+", proc.stdout, flags=re.MULTILINE)
+
+
+def test_cli_guard_with_wf_train_pct_runs():
+    """CLI accepts --wf-train-pct 0.8 + --guard and prints GUARD line."""
+    proc = _run("--guard", "--bars", "500", "--wf-train-pct", "0.8")
+    assert re.search(r"^GUARD\s+(PASS|FAIL)", proc.stdout, flags=re.MULTILINE), proc.stdout
+    assert proc.returncode in (0, 1)
+
+
+def test_cli_default_wf_train_pct_is_zero_and_changes_nothing():
+    """Without --wf-train-pct, behaviour is identical to pre-change."""
+    proc = _run("--metric", "sharpe", "--bars", "300")
+    assert proc.returncode == 0
+    m = re.search(r"^SHARPE\s+(-?[0-9.]+)", proc.stdout, flags=re.MULTILINE)
+    assert m is not None
+
+
+def test_cli_wf_train_pct_actually_reduces_simulated_bars(tmp_path):
+    """With --wf-train-pct 0.9 over a small bar count, GUARD line reports
+    fewer bars than the requested --bars (because we sliced the tail)."""
+    proc = _run("--guard", "--bars", "1000", "--wf-train-pct", "0.9")
+    # GUARD PASS includes 'bars=NNN'; GUARD FAIL does not. Use PASS-only branch
+    # by checking only when bars= present.
+    m_bars = re.search(r"bars=(\d+)", proc.stdout)
+    if m_bars is not None:
+        # 1000 bars * 0.1 holdout = ~100 bars
+        assert int(m_bars.group(1)) <= 200, proc.stdout

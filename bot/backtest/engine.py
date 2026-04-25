@@ -96,6 +96,30 @@ def _load_ohlcv(symbol: str, timeframe: str, bars: int, bot_root: Path) -> pd.Da
         })
 
 
+def _apply_walk_forward(df: pd.DataFrame, train_pct: float) -> pd.DataFrame:
+    """Walk-forward holdout: return only the tail (1 - train_pct) of the bars.
+
+    The "fit" is implicit (params chosen on full-window synthetic data); we
+    validate by simulating on the held-out tail. Disabled when train_pct <= 0.
+
+    Edge cases:
+    - train_pct <= 0 or None: pass-through (no slicing)
+    - train_pct >= 1.0: clamped to leave at least 1 bar of holdout
+    - resulting holdout < 50 bars: still returned; downstream MIN_BARS check
+      will warn/error as appropriate
+    """
+    if train_pct is None or train_pct <= 0.0:
+        return df
+    n = len(df)
+    if n == 0:
+        return df
+    # Clamp so we always keep at least 1 holdout bar
+    train_pct = min(train_pct, 0.999)
+    cutoff = int(n * train_pct)
+    holdout = df.iloc[cutoff:].reset_index(drop=True)
+    return holdout
+
+
 def _compute_stats(trade_returns: list[float], equity_path: list[float], n_bars: int) -> dict:
     returns = np.array(trade_returns, dtype=float)
     if returns.size < 2:
@@ -268,6 +292,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbol", default="EURUSD")
     parser.add_argument("--timeframe", default="H1")
     parser.add_argument("--bars", type=int, default=5000)
+    parser.add_argument(
+        "--wf-train-pct",
+        type=float,
+        default=0.0,
+        help=(
+            "Walk-forward holdout fraction in [0.0, 1.0). When > 0, only the "
+            "tail (1 - train_pct) of the loaded bars is simulated, providing a "
+            "simple out-of-sample validation. 0.0 (default) disables holdout."
+        ),
+    )
     args = parser.parse_args(argv)
 
     bot_root = _BOT_ROOT
@@ -301,6 +335,9 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"ERROR loading data: {exc}", file=sys.stderr)
         return 2
+
+    # Walk-forward holdout slice (no-op when wf_train_pct <= 0)
+    df = _apply_walk_forward(df, args.wf_train_pct)
 
     if len(df) < MIN_BARS:
         # Allow synthetic short runs but warn — refuse only when extremely small

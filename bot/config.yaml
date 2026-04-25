@@ -30,3 +30,5 @@ autoresearch:
   enabled: true
   iterations_per_run: 5      # steps per background run (full 50 spread across multiple restarts)
   cooldown_seconds: 3600     # wait this long before restarting after a run completes
+  wf_train_pct: 0.8          # walk-forward hold-out fraction for guard calls (0.0 disables)
+  multi_symbol_mean: true    # aggregate verify sharpe as mean across symbols

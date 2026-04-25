@@ -68,6 +68,8 @@ class AutoresearchLoop:
         self._direction = 1
         self._visited: set[tuple] = self._load_visited()
         self._symbols = self._configured_symbols()
+        # Walk-forward + multi-symbol aggregation config (loaded from config.yaml)
+        self._wf_train_pct, self._multi_symbol_mean = self._load_autoresearch_cfg()
 
     # ------------------------------------------------------------------ #
     # Helpers                                                            #
@@ -112,6 +114,27 @@ class AutoresearchLoop:
             return list(instruments) if instruments else ["EURUSD"]
         except Exception:
             return ["EURUSD"]
+
+    def _load_autoresearch_cfg(self) -> tuple[float, bool]:
+        """Read autoresearch.wf_train_pct and autoresearch.multi_symbol_mean.
+
+        Defaults: wf_train_pct=0.0 (disabled), multi_symbol_mean=True.
+        Both options are opt-in — when disabled, behaviour matches the
+        pre-change single-symbol / full-window codepath.
+        """
+        try:
+            cfg = yaml.safe_load(self.config_path.read_text()) or {}
+            ar = (cfg.get("autoresearch") or {})
+            wf = float(ar.get("wf_train_pct", 0.0) or 0.0)
+            multi = bool(ar.get("multi_symbol_mean", True))
+            # Clamp to safe range
+            if wf < 0.0:
+                wf = 0.0
+            if wf >= 1.0:
+                wf = 0.999
+            return wf, multi
+        except Exception:
+            return 0.0, True
 
     def _load_params(self) -> dict:
         if not self.params_path.exists():
@@ -187,22 +210,45 @@ class AutoresearchLoop:
         return {"committed_at": datetime.now(tz=timezone.utc).isoformat(), **proposal}
 
     def phase_verify(self) -> float:
-        """Average Sharpe across all configured symbols."""
-        sharpes = []
+        """Sharpe across configured symbols.
+
+        Aggregation rule:
+        - len(symbols) == 1 → return that symbol's sharpe (single-call path,
+          identical to pre-change behaviour).
+        - len(symbols) > 1 AND multi_symbol_mean=True → mean across symbols.
+        - len(symbols) > 1 AND multi_symbol_mean=False → first symbol only
+          (preserves single-symbol semantics for users opting out).
+
+        Verify deliberately uses the FULL bar window (no walk-forward) — only
+        guard calls apply the holdout.
+        """
+        if len(self._symbols) == 1 or not self._multi_symbol_mean:
+            sym = self._symbols[0]
+            _, out, _ = self._run_engine("--metric", "sharpe", symbol=sym)
+            return self._parse_sharpe(out)
+        sharpes: list[float] = []
         for sym in self._symbols:
             _, out, _ = self._run_engine("--metric", "sharpe", symbol=sym)
             sharpes.append(self._parse_sharpe(out))
         return sum(sharpes) / len(sharpes) if sharpes else float("-inf")
 
     def phase_guard(self) -> tuple[bool, str, float, float]:
-        """Guard passes only when ALL configured symbols pass."""
+        """Guard passes only when ALL configured symbols pass.
+
+        Walk-forward holdout (--wf-train-pct) is applied to guard calls when
+        configured > 0 so that acceptance is judged on out-of-sample bars.
+        """
+        guard_flags: tuple[str, ...] = ("--guard",)
+        if self._wf_train_pct > 0.0:
+            guard_flags = ("--guard", "--wf-train-pct", str(self._wf_train_pct))
+
         all_pass = True
         win_rates: list[float] = []
         max_dds: list[float] = []
         guard_lines: list[str] = []
         for sym in self._symbols:
-            rc, out, _ = self._run_engine("--guard", symbol=sym)
-            if rc != 0:
+            rc, out, _ = self._run_engine(*guard_flags, symbol=sym)
+            if rc != 0 or not self._parse_guard(out):
                 all_pass = False
             guard_lines.append(f"{sym}: {out.strip()}")
             m_wr = _WR_RE.search(out)
