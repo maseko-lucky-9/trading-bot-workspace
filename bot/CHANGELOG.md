@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0] — 2026-04-25
+## [0.1.0] — 2026-04-25 ✓ production-verified
 
 ### Added
 - **HTTP bridge** (`core/bridge/http_client.py`, `core/bridge/http_server.py`): FastAPI-based IPC between the macOS bot and the MT5 EA in the UTM Windows VM. No shared folders required — EA communicates via HTTP on the UTM host-only network (`192.168.64.1:8080`). See ADR 001.
@@ -11,7 +11,10 @@
 - **Risk manager**, **order manager**, **live broker** (`core/execution/`): Full execution stack for paper and live modes.
 - **Autoresearch loop** (`autoresearch/`): Autonomous strategy research with knowledge base persistence.
 - **Checkpoint/state management** (`core/state.py`): Auto-saves bot state every 5 minutes.
-- **Test suite**: 170 tests across all core modules (bridge client/server, backtest engine, performance tracker, paper broker, feed, indicators, strategies, order/risk managers, state).
+- **Test suite**: 241 tests, 93% coverage across all core modules (bridge client/server, backtest engine, performance tracker, paper broker, feed, indicators, strategies, order/risk managers, state). `autoresearch/loop.py` at 100%.
+
+### Verified
+- **Live E2E test** (2026-04-25): UTM Windows VM + MT5 + `PythonBridgeHTTP.mq5` EA → `ea_connected: true` → H1 bars serving `source: "live"` for USDJPY → paper trade round-trip (`place_order` → `get_positions` → `close_position`) completed successfully.
 
 ### Removed
 - **File-based IPC bridge** (`core/bridge/mt5_client.py`): Replaced by the HTTP bridge. The old bridge required UTM shared-folder config, macOS volume mounts, and Windows drive mapping — none of which are needed with the HTTP approach.
