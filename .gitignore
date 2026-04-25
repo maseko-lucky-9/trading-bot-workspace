@@ -1,0 +1,23 @@
+# Python
+bot/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.python-version
+**/*.egg-info/
+
+# Data / runtime
+bot/bridge_data/
+bot/checkpoints/
+bot/logs/
+bot/autoresearch/results.tsv
+logs/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Secrets
+.env
+*.env
