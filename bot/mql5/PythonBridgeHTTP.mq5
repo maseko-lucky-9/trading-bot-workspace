@@ -44,12 +44,14 @@ void OnTimer()
 {
    static int tick_counter = 0;
    static int cmd_counter  = 0;
+   static int acct_counter = 0;
 
    tick_counter += 100;
    cmd_counter  += 100;
+   acct_counter += 100;
 
    if (tick_counter >= TICK_INTERVAL)   { PushTickData();    tick_counter = 0; }
-   if (tick_counter >= 5000)            { PushAccountData(); }
+   if (acct_counter >= 5000)            { PushAccountData(); acct_counter = 0; }
    if (cmd_counter  >= CMD_POLL_MS)     { PollCommand();     cmd_counter  = 0; }
 }
 
