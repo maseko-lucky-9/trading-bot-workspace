@@ -1,0 +1,9 @@
+[project]
+name = "mt5-trading-bot"
+version = "0.1.0"
+description = "Autonomous MT5 trading bot with HTTP bridge, backtesting, and RL-ready strategy framework"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

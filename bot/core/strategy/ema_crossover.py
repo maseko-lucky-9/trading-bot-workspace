@@ -11,23 +11,7 @@ import numpy as np
 import pandas as pd
 
 from core.strategy.base import Signal, Strategy
-
-
-def _atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    high = df["high"]
-    low = df["low"]
-    close = df["close"]
-    prev_close = close.shift(1)
-    tr = pd.concat(
-        [
-            (high - low).abs(),
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    # Wilder smoothing == EMA with alpha = 1/period
-    return tr.ewm(alpha=1 / period, adjust=False).mean()
+from core.strategy.indicators import atr as _atr
 
 
 class EMACrossover(Strategy):

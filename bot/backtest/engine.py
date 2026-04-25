@@ -36,6 +36,7 @@ if str(_BOT_ROOT) not in sys.path:
 from core.bridge.http_client import MT5BridgeClient  # noqa: E402
 from core.data.history import HistoryFetcher  # noqa: E402
 from core.strategy.ema_crossover import EMACrossover  # noqa: E402
+from core.strategy.mean_reversion import BollingerBandMeanReversion  # noqa: E402
 
 PIP_SIZE = 0.0001
 PIP_VALUE_USD_PER_LOT = 10.0
@@ -95,12 +96,35 @@ def _load_ohlcv(symbol: str, timeframe: str, bars: int, bot_root: Path) -> pd.Da
         })
 
 
-def _simulate(df: pd.DataFrame, params: dict) -> dict:
-    """Simulate EMA-crossover trades on the bar series.
+def _compute_stats(trade_returns: list[float], equity_path: list[float], n_bars: int) -> dict:
+    returns = np.array(trade_returns, dtype=float)
+    if returns.size < 2:
+        sharpe = 0.0
+    else:
+        std = float(np.std(returns, ddof=1))
+        sharpe = 0.0 if std == 0 else float(np.mean(returns) / std * math.sqrt(ANNUALIZATION))
 
-    Each crossover flips the position: BUY closes any short and opens long
-    (and vice versa). Closing a position records its P&L. Volume = 0.01.
-    """
+    win_rate = float((returns > 0).sum() / returns.size) if returns.size > 0 else 0.0
+
+    eq = np.array(equity_path, dtype=float)
+    if eq.size > 0:
+        peak = np.maximum.accumulate(eq)
+        dd = (peak - eq) / 10_000.0
+        max_dd = float(max(0.0, dd.max()))
+    else:
+        max_dd = 0.0
+
+    return {
+        "sharpe": sharpe,
+        "max_drawdown": max_dd,
+        "win_rate": win_rate,
+        "trades": int(returns.size),
+        "bars": n_bars,
+    }
+
+
+def _simulate_ema(df: pd.DataFrame, params: dict) -> dict:
+    """Always-in EMA crossover simulation. Flips position on each crossover."""
     fast = int(params.get("ema_fast", 9))
     slow = int(params.get("ema_slow", 21))
     if fast >= slow:
@@ -111,7 +135,7 @@ def _simulate(df: pd.DataFrame, params: dict) -> dict:
     slow_ema = ind["ema_slow"].to_numpy()
     closes = ind["close"].to_numpy()
 
-    pos_side: str | None = None  # "BUY" | "SELL"
+    pos_side: str | None = None
     pos_entry: float = 0.0
     volume = 0.01
     trade_returns: list[float] = []
@@ -132,7 +156,6 @@ def _simulate(df: pd.DataFrame, params: dict) -> dict:
 
         price = closes[i]
         if signal and signal != pos_side:
-            # Close current position
             if pos_side is not None:
                 delta = (price - pos_entry) / PIP_SIZE
                 if pos_side == "SELL":
@@ -140,12 +163,10 @@ def _simulate(df: pd.DataFrame, params: dict) -> dict:
                 pnl = delta * PIP_VALUE_USD_PER_LOT * volume
                 trade_returns.append(pnl)
                 equity += pnl
-            # Open new
             pos_side = signal
             pos_entry = price
         equity_path.append(equity)
 
-    # Mark-to-market final position close
     if pos_side is not None and len(closes) > 0:
         delta = (closes[-1] - pos_entry) / PIP_SIZE
         if pos_side == "SELL":
@@ -155,36 +176,88 @@ def _simulate(df: pd.DataFrame, params: dict) -> dict:
         equity += pnl
         equity_path.append(equity)
 
-    returns = np.array(trade_returns, dtype=float)
-    if returns.size < 2:
-        sharpe = 0.0
-    else:
-        std = float(np.std(returns, ddof=1))
-        sharpe = 0.0 if std == 0 else float(np.mean(returns) / std * math.sqrt(ANNUALIZATION))
+    return _compute_stats(trade_returns, equity_path, int(len(df)))
 
-    if returns.size > 0:
-        wins = int((returns > 0).sum())
-        win_rate = wins / returns.size
-    else:
-        win_rate = 0.0
 
-    eq = np.array(equity_path, dtype=float)
-    if eq.size > 0:
-        peak = np.maximum.accumulate(eq)
-        # express drawdown relative to a reasonable equity baseline (10000)
-        baseline = 10_000.0
-        dd = (peak - eq) / baseline
-        max_dd = float(max(0.0, dd.max()))
-    else:
-        max_dd = 0.0
+def _simulate_mean_reversion(df: pd.DataFrame, params: dict) -> dict:
+    """Enter on band-touch + RSI confirmation; exit when price reverts to mid-band."""
+    bb_period = int(params.get("bb_period", 20))
+    bb_std_val = float(params.get("bb_std", 2.0))
+    rsi_period = int(params.get("rsi_period", 14))
+    rsi_oversold = float(params.get("rsi_os", 30.0))
+    rsi_overbought = float(params.get("rsi_ob", 70.0))
+    atr_sl = float(params.get("atr_multiplier", 1.5))
 
-    return {
-        "sharpe": sharpe,
-        "max_drawdown": max_dd,
-        "win_rate": win_rate,
-        "trades": int(returns.size),
-        "bars": int(len(df)),
-    }
+    strat = BollingerBandMeanReversion(
+        bb_period=bb_period,
+        bb_std=bb_std_val,
+        rsi_period=rsi_period,
+        rsi_oversold=rsi_oversold,
+        rsi_overbought=rsi_overbought,
+        atr_sl_multiplier=atr_sl,
+    )
+    ind = strat.compute_indicators(df)
+    closes = ind["close"].to_numpy()
+    bb_lower = ind["bb_lower"].to_numpy()
+    bb_upper = ind["bb_upper"].to_numpy()
+    bb_mid = ind["bb_mid"].to_numpy()
+    rsi = ind["rsi"].to_numpy()
+
+    pos_side: str | None = None
+    pos_entry: float = 0.0
+    volume = 0.01
+    trade_returns: list[float] = []
+    equity_path: list[float] = []
+    equity = 0.0
+
+    for i in range(len(closes)):
+        if math.isnan(bb_lower[i]) or math.isnan(rsi[i]):
+            equity_path.append(equity)
+            continue
+
+        price = closes[i]
+
+        # Exit: price reverts to mid-band
+        if pos_side == "BUY" and price >= bb_mid[i]:
+            pnl = (price - pos_entry) / PIP_SIZE * PIP_VALUE_USD_PER_LOT * volume
+            trade_returns.append(pnl)
+            equity += pnl
+            pos_side = None
+        elif pos_side == "SELL" and price <= bb_mid[i]:
+            pnl = (pos_entry - price) / PIP_SIZE * PIP_VALUE_USD_PER_LOT * volume
+            trade_returns.append(pnl)
+            equity += pnl
+            pos_side = None
+
+        # Entry: band-touch + RSI confirmation
+        if pos_side is None:
+            if price <= bb_lower[i] and rsi[i] < rsi_oversold:
+                pos_side = "BUY"
+                pos_entry = price
+            elif price >= bb_upper[i] and rsi[i] > rsi_overbought:
+                pos_side = "SELL"
+                pos_entry = price
+
+        equity_path.append(equity)
+
+    # Mark-to-market
+    if pos_side is not None and len(closes) > 0:
+        delta = (closes[-1] - pos_entry) / PIP_SIZE
+        if pos_side == "SELL":
+            delta = -delta
+        pnl = delta * PIP_VALUE_USD_PER_LOT * volume
+        trade_returns.append(pnl)
+        equity += pnl
+        equity_path.append(equity)
+
+    return _compute_stats(trade_returns, equity_path, int(len(df)))
+
+
+def _run_simulation(df: pd.DataFrame, params: dict) -> dict:
+    strategy = params.get("strategy", "ema_crossover")
+    if strategy == "mean_reversion":
+        return _simulate_mean_reversion(df, params)
+    return _simulate_ema(df, params)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -202,12 +275,26 @@ def main(argv: list[str] | None = None) -> int:
     autoresearch_cfg = (cfg.get("autoresearch") or {})
     target_sharpe = float(autoresearch_cfg.get("target_sharpe", 1.5))
     max_dd_guard = float(autoresearch_cfg.get("max_drawdown_guard", 0.05))
-    min_wr_guard = float(autoresearch_cfg.get("min_win_rate_guard", 0.45))
 
     params = cfg.get("params") or {}
-    # If overlay missing pull from defaults
+    params.setdefault("strategy", "ema_crossover")
+
+    # Win-rate guard: use strategy-specific threshold when available
+    _strategy_name = params.get("strategy", "ema_crossover")
+    if _strategy_name == "mean_reversion":
+        _wr_key, _wr_default = "min_win_rate_guard_mr", 0.50
+    else:
+        _wr_key, _wr_default = "min_win_rate_guard_ema", 0.38
+    _fallback = float(autoresearch_cfg.get("min_win_rate_guard", _wr_default))
+    min_wr_guard = float(autoresearch_cfg.get(_wr_key, _fallback))
     params.setdefault("ema_fast", 9)
     params.setdefault("ema_slow", 21)
+    params.setdefault("bb_period", 20)
+    params.setdefault("bb_std", 2.0)
+    params.setdefault("rsi_period", 14)
+    params.setdefault("rsi_os", 30.0)
+    params.setdefault("rsi_ob", 70.0)
+    params.setdefault("atr_multiplier", 1.5)
 
     try:
         df = _load_ohlcv(args.symbol, args.timeframe, args.bars, bot_root)
@@ -227,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     try:
-        result = _simulate(df, params)
+        result = _run_simulation(df, params)
     except Exception as exc:
         print(f"ERROR simulating: {exc}", file=sys.stderr)
         return 2

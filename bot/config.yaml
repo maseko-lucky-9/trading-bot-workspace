@@ -23,7 +23,12 @@ risk:
 autoresearch:
   target_sharpe: 1.5
   max_drawdown_guard: 0.05
-  min_win_rate_guard: 0.43   # synthetic data ceiling; raise to 0.45 once real MT5 H1 history flows in
+  min_win_rate_guard: 0.43          # fallback when strategy-specific value is absent
+  min_win_rate_guard_ema: 0.38      # EMA crossover has structurally lower win rate (high R:R)
+  min_win_rate_guard_mr: 0.50       # mean reversion targets higher win rate; raise to 0.55 on real data
   iterations: 50
   metric_command: "python backtest/engine.py --metric sharpe"
   guard_command: "python backtest/engine.py --guard"
+  enabled: true
+  iterations_per_run: 5      # steps per background run (full 50 spread across multiple restarts)
+  cooldown_seconds: 3600     # wait this long before restarting after a run completes

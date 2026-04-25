@@ -17,6 +17,9 @@ class BotState:
     positions: list = field(default_factory=list)
     performance_summary: dict = field(default_factory=dict)
     strategy_params: dict = field(default_factory=dict)
+    peak_equity: float = 0.0
+    day_start_equity: float = 0.0
+    day_start_date: str = ""   # ISO date "YYYY-MM-DD" of last day-equity reset
     timestamp: str = field(
         default_factory=lambda: datetime.now(tz=timezone.utc).isoformat()
     )
@@ -34,7 +37,7 @@ class CheckpointManager:
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     def _stamp(self) -> str:
-        return time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+        return datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S%f")
 
     def save(self, state: BotState) -> Path:
         stamp = self._stamp()

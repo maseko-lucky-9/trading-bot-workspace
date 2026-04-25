@@ -11,6 +11,8 @@ from typing import Iterable
 
 import pandas as pd
 
+from core.strategy.indicators import atr as _atr_series
+
 
 PIP_SIZE = 0.0001
 PIP_VALUE_USD_PER_LOT = 10.0  # EURUSD/GBPUSD standard lot, $/pip
@@ -18,19 +20,7 @@ LOT_STEP = 0.01
 
 
 def _atr(df: pd.DataFrame, period: int = 14) -> float:
-    high = df["high"]
-    low = df["low"]
-    close = df["close"]
-    prev = close.shift(1)
-    tr = pd.concat(
-        [
-            (high - low).abs(),
-            (high - prev).abs(),
-            (low - prev).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    return float(tr.tail(period).mean())
+    return float(_atr_series(df, period).iloc[-1])
 
 
 def _round_to_step(x: float, step: float = LOT_STEP) -> float:

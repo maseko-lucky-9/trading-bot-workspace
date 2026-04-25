@@ -41,6 +41,12 @@ _command_queue: deque = deque(maxlen=10)
 _result_log: list = []
 _lock = threading.Lock()
 
+# Rolling H1 bar buffer keyed by symbol — populated from EA tick pushes.
+# Serves real history once the EA is live; synthetic fallback otherwise.
+_H1_MAX_BARS = 1000
+_h1_bars: dict[str, deque] = {}   # symbol -> deque of OHLCV dicts
+_h1_open_bar: dict[str, dict] = {}  # symbol -> in-progress bar
+
 
 # ------------------------------------------------------------------ #
 # EA → Server  (EA pushes data on every tick / timer)                #
@@ -77,11 +83,46 @@ class TradeResult(BaseModel):
     error: Optional[str] = None
 
 
+def _accumulate_h1(data: TickData) -> None:
+    """Fold an EA tick into the rolling H1 bar buffer (called under _lock)."""
+    sym = data.symbol
+    if data.h1_open is None:
+        return  # EA didn't attach OHLCV — nothing to accumulate
+
+    # Align to H1 boundary
+    bar_time = int(data.time) - (int(data.time) % 3600)
+
+    if sym not in _h1_bars:
+        _h1_bars[sym] = deque(maxlen=_H1_MAX_BARS)
+
+    current = _h1_open_bar.get(sym)
+    if current is None or current["time"] != bar_time:
+        # Seal the previous bar
+        if current is not None:
+            _h1_bars[sym].append(current)
+        # Open a new in-progress bar from EA OHLCV snapshot
+        _h1_open_bar[sym] = {
+            "time":   bar_time,
+            "open":   round(data.h1_open, 5),
+            "high":   round(data.h1_high, 5),
+            "low":    round(data.h1_low, 5),
+            "close":  round(data.h1_close, 5),
+            "volume": data.volume or 0,
+        }
+    else:
+        # Update in-progress bar: EA sends realtime OHLCV for current bar
+        current["high"]   = round(max(current["high"], data.h1_high), 5)
+        current["low"]    = round(min(current["low"], data.h1_low), 5)
+        current["close"]  = round(data.h1_close, 5)
+        current["volume"] = data.volume or current["volume"]
+
+
 @app.post("/tick")
 def push_tick(data: TickData):
     with _lock:
         _state["tick"] = data.model_dump()
         _state["heartbeat"] = time.time()
+        _accumulate_h1(data)
         (DATA_DIR / "price.json").write_text(json.dumps(_state["tick"]))
     return {"ok": True}
 
@@ -153,54 +194,65 @@ def ping():
     return {"pong": True, "ea_connected": connected, "time": int(time.time())}
 
 
+def _synthetic_bars(symbol: str, timeframe: str, bars: int, base_price: float) -> list[dict]:
+    """Deterministic random-walk fallback when real EA history is unavailable."""
+    seconds = _TF_SECONDS.get(timeframe.upper(), 3600)
+    seed_int = int((base_price * 1_000_000) % 2**31) ^ hash(symbol) & 0x7fffffff
+    rng = random.Random(seed_int)
+    now = int(time.time())
+    end = now - (now % seconds)
+    walk: list[float] = []
+    p = base_price
+    for _ in range(bars):
+        p = max(0.5, p + rng.gauss(0, 0.0008))
+        walk.append(p)
+    walk.reverse()
+    out = []
+    for i, close in enumerate(walk):
+        bar_time = end - (bars - 1 - i) * seconds
+        prev = walk[i - 1] if i > 0 else close
+        high = max(prev, close) + abs(rng.gauss(0, 0.0003))
+        low  = min(prev, close) - abs(rng.gauss(0, 0.0003))
+        out.append({
+            "time":   bar_time,
+            "open":   round(prev, 5),
+            "high":   round(high, 5),
+            "low":    round(low, 5),
+            "close":  round(close, 5),
+            "volume": rng.randint(50, 5000),
+        })
+    return out
+
+
 @app.get("/history")
 def get_history(
     symbol: str = Query("EURUSD"),
     timeframe: str = Query("H1"),
     bars: int = Query(500, ge=1, le=20000),
 ):
-    """Synthetic OHLCV history for the requested symbol/timeframe.
+    """OHLCV history for the requested symbol/timeframe.
 
-    Real MT5 history will replace this once the EA exposes ``CopyRates``
-    via the bridge. Until then we synthesise a deterministic random walk
-    seeded from the last live tick price so backtests run end-to-end.
+    Serves real accumulated bars from EA tick pushes when available (H1 only).
+    Falls back to a deterministic synthetic random walk for other timeframes
+    or before the EA is live, so backtests run end-to-end immediately.
     """
-    seconds = _TF_SECONDS.get(timeframe.upper(), 3600)
     with _lock:
         last_tick = dict(_state.get("tick") or {})
+        real_bars: list[dict] = []
+        if timeframe.upper() == "H1" and symbol in _h1_bars:
+            real_bars = list(_h1_bars[symbol])
+            # Append in-progress bar if present
+            current = _h1_open_bar.get(symbol)
+            if current:
+                real_bars.append(dict(current))
+
+    if real_bars:
+        # Return newest `bars` bars in ascending time order
+        return {"symbol": symbol, "timeframe": timeframe, "bars": real_bars[-bars:], "source": "live"}
+
     base_price = float(last_tick.get("bid") or 1.10000) or 1.10000
-    seed_int = int((base_price * 1_000_000) % 2**31) ^ hash(symbol) & 0x7fffffff
-    rng = random.Random(seed_int)
-
-    now = int(time.time())
-    # Align to bar boundary
-    end = now - (now % seconds)
-    out: list[dict] = []
-    price = base_price
-    # Walk backwards then reverse so 'time' is ascending
-    walk: list[float] = []
-    p = price
-    for _ in range(bars):
-        step = rng.gauss(0, 0.0008)  # ~8 pips H1 vol
-        p = max(0.5, p + step)
-        walk.append(p)
-    walk.reverse()
-
-    for i, close in enumerate(walk):
-        bar_time = end - (bars - 1 - i) * seconds
-        prev = walk[i - 1] if i > 0 else close
-        high = max(prev, close) + abs(rng.gauss(0, 0.0003))
-        low = min(prev, close) - abs(rng.gauss(0, 0.0003))
-        open_p = prev
-        out.append({
-            "time": bar_time,
-            "open": round(open_p, 5),
-            "high": round(high, 5),
-            "low": round(low, 5),
-            "close": round(close, 5),
-            "volume": rng.randint(50, 5000),
-        })
-    return {"symbol": symbol, "timeframe": timeframe, "bars": out}
+    out = _synthetic_bars(symbol, timeframe, bars, base_price)
+    return {"symbol": symbol, "timeframe": timeframe, "bars": out, "source": "synthetic"}
 
 
 if __name__ == "__main__":

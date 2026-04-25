@@ -1,7 +1,7 @@
-strategy: ema_crossover
-ema_fast: 24.0
-ema_slow: 25.0
-atr_multiplier: 5.0
+strategy: mean_reversion
+ema_fast: 13.0
+ema_slow: 20.0
+atr_multiplier: 4.75
 risk_pct: 0.01
 bb_period: 20
 bb_std: 3.75

@@ -97,5 +97,5 @@ if __name__ == "__main__":
     print(f"EA heartbeat: {'ALIVE' if alive else 'STALE — EA may not be running'}")
 
     update_config(folder)
-    print("\nRun the ping test:")
-    print("  python core/bridge/mt5_client.py --ping")
+    print("\nStart the bridge server:")
+    print("  python core/bridge/http_server.py")
