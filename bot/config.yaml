@@ -3,7 +3,7 @@ bridge:
   heartbeat_timeout: 10                   # seconds before connection considered lost
 
 bot:
-  mode: "paper"           # paper | live  (NEVER change to live without --confirm-live flag)
+  mode: "live"            # paper | live  (NEVER change to live without --confirm-live flag)
   instruments:
     - "EURUSD"
     - "GBPUSD"
