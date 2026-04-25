@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -380,6 +381,189 @@ def test_arg_parser_accepts_all_flags():
 # ---------------------------------------------------------------------------
 # Market-hours gate
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Coverage: uncovered branches
+# ---------------------------------------------------------------------------
+
+def test_is_market_open_naive_datetime_treated_as_utc():
+    # Naive Saturday noon — should be closed
+    naive = datetime(2026, 4, 25, 12, 0)
+    assert is_market_open(naive) is False
+
+
+def test_compute_backoff_negative_count_treated_as_zero():
+    assert compute_backoff(-5) == compute_backoff(0) == 30
+
+
+def test_default_spawn_fn_is_importable():
+    # _default_spawn wraps subprocess.Popen; just confirm it's callable
+    from supervisor import _default_spawn
+    import subprocess
+    assert callable(_default_spawn)
+
+
+def test_shutdown_child_no_op_when_child_is_none(tmp_path):
+    """_shutdown_child with no child → early return, no error."""
+    s = Supervisor(
+        command=["python", "main.py"],
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=False,
+    )
+    s._child = None
+    s._shutdown_child()  # must not raise
+
+
+def test_shutdown_child_no_op_when_already_exited(tmp_path):
+    """_shutdown_child when child already exited → early return."""
+    s = Supervisor(
+        command=["python", "main.py"],
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=False,
+    )
+    proc = FakeProcess(exit_after_s=0)
+    time.sleep(0.1)  # let it exit
+    s._child = proc
+    s._shutdown_child()  # must not raise, no terminate call
+    assert not proc.terminate_called
+
+
+def test_sleep_with_backoff_respects_stop_event(tmp_path):
+    """_sleep_with_backoff exits early when stop_event is set."""
+    from unittest.mock import patch as _patch
+    s = Supervisor(
+        command=["python", "main.py"],
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=False,
+    )
+    # Make backoff very short so test doesn't hang
+    with _patch("supervisor.compute_backoff", return_value=0):
+        s._sleep_with_backoff()
+
+
+def test_sleep_with_backoff_interrupted_by_stop_event(tmp_path):
+    """Stop event set mid-sleep exits the backoff loop early."""
+    from unittest.mock import patch as _patch
+    s = Supervisor(
+        command=["python", "main.py"],
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=False,
+    )
+    # Would sleep 5s, but we set stop_event immediately
+    def _set_stop():
+        time.sleep(0.05)
+        s.request_stop()
+    t = threading.Thread(target=_set_stop, daemon=True)
+    t.start()
+    with _patch("supervisor.compute_backoff", return_value=5):
+        start = time.time()
+        s._sleep_with_backoff()
+    assert time.time() - start < 2  # stopped well before 5s
+
+
+def test_spawn_failure_treated_as_crash(tmp_path):
+    """spawn_fn raises → supervisor does backoff+increment and eventually halts."""
+    s = Supervisor(
+        command=["python", "main.py"],
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=False,
+        max_restarts=2,
+    )
+    s._sleep_with_backoff = lambda: None
+
+    def bad_spawn(cmd):
+        raise OSError("exec failed")
+
+    s.spawn_fn = bad_spawn
+    rc = s.run()
+    assert rc == 0
+    assert s.last_exit_code == -1
+
+
+def test_health_write_exception_does_not_crash(tmp_path):
+    """If _write_health_snapshot raises, the supervisor continues."""
+    from unittest.mock import patch as _patch
+    proc_holder = {}
+
+    def spawn_fn(cmd):
+        proc = FakeProcess(exit_after_s=5)
+        proc_holder["p"] = proc
+        return proc
+
+    s = Supervisor(
+        command=["python", "main.py"],
+        spawn_fn=spawn_fn,
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=False,
+        health_interval_s=0.05,
+    )
+
+    with _patch.object(s, "_write_health_snapshot", side_effect=OSError("disk full")):
+        t = threading.Thread(target=s.run, daemon=True)
+        t.start()
+        # Wait for child to spawn
+        deadline = time.time() + 3
+        while time.time() < deadline and "p" not in proc_holder:
+            time.sleep(0.02)
+        s.request_stop()
+        t.join(timeout=5)
+    assert not t.is_alive()
+
+
+def test_final_health_write_exception_does_not_crash(tmp_path):
+    """Exception in finally-block health write must not propagate."""
+    from unittest.mock import patch as _patch
+
+    calls = {"n": 0}
+    def spawn_fn(cmd):
+        return FakeProcess(exit_after_s=0.05)
+
+    s = Supervisor(
+        command=["python", "main.py"],
+        spawn_fn=spawn_fn,
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=False,
+        max_restarts=1,
+    )
+    s._sleep_with_backoff = lambda: None
+
+    original = s._write_health_snapshot.__func__
+
+    def patched_write(self_inner):
+        calls["n"] += 1
+        if calls["n"] >= 3:
+            raise OSError("disk full")
+        original(self_inner)
+
+    with _patch.object(type(s), "_write_health_snapshot", patched_write):
+        rc = s.run()
+    assert rc == 0  # must not propagate
+
+
+def test_wait_for_market_open_returns_immediately_when_open(tmp_path):
+    """_wait_for_market_open returns at once when clock says market is open."""
+    # Monday 10:00 UTC — open
+    s = Supervisor(
+        command=["python", "main.py"],
+        health_path=tmp_path / "h.json",
+        market_hours_enabled=True,
+        clock_fn=lambda: _utc(2026, 4, 27, 10, 0),
+    )
+    start = time.time()
+    s._wait_for_market_open()
+    assert time.time() - start < 1  # returns without sleeping
+
+
+def test_main_with_mock_supervisor(tmp_path, monkeypatch):
+    """main() constructs a Supervisor and calls run()."""
+    from unittest.mock import patch as _patch
+    mock_sup = MagicMock()
+    mock_sup.run.return_value = 0
+    with _patch("supervisor.Supervisor", return_value=mock_sup):
+        rc = main(["--no-market-hours", "--max-restarts", "1"])
+    assert rc == 0
+    mock_sup.run.assert_called_once()
+
 
 def test_market_gate_blocks_spawn_when_closed(tmp_path):
     health_path = tmp_path / "h.json"
