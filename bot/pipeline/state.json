@@ -1,36 +1,49 @@
 {
   "schema_version": "1.0",
-  "run_id": "20260425-autoresearch-wf",
-  "started_at": "2026-04-25T00:00:00Z",
-  "updated_at": "2026-04-25T00:00:00Z",
+  "run_id": "20260426-position-monitor",
+  "started_at": "2026-04-26T00:00:00Z",
+  "updated_at": "2026-04-26T01:00:00Z",
   "current_phase": "summary",
   "phase_status": "completed",
-  "requirement": "Improve autoresearch loop with multi-symbol evaluation and walk-forward validation",
+  "requirement": "Live order monitoring for MT5 bot — PositionMonitor polls bridge, JSONL logs, fill/loss alerts (LOG-ONLY, no Slack), background thread in main.py with --live",
   "project_root": "/Users/ltmas/trading-bot-workspace/bot",
   "phases": {
-    "phase_0": { "status": "completed", "notes": "Requirement parseable; observed phase_verify/phase_guard already iterate symbols. Real gap: --wf-train-pct + config wiring + tests. dual_client: false; scope_warning: false." },
-    "phase_0_5": { "status": "skipped", "notes": "User-provided requirement is the design brief — explicit acceptance criteria + constraints." },
-    "phase_1": { "status": "completed", "notes": "Plan: T001 engine flag; T002 loop wiring; T003 config keys; T004 tests." },
-    "phase_1_5": { "status": "skipped", "notes": "Plan small (4 tasks), explicit, no architectural ambiguity." },
-    "phase_2": { "status": "completed", "notes": "Files in scope: backtest/engine.py, autoresearch/loop.py, config.yaml, tests/." },
-    "phase_3": { "status": "skipped", "notes": "No new dependencies; constraints honored: _run_engine signature unchanged." },
-    "phase_4": { "status": "completed", "tasks": [
-      { "id": "T001", "slug": "engine-wf-train-pct", "status": "completed", "files_changed": ["backtest/engine.py"] },
-      { "id": "T002", "slug": "loop-config-wf-passthrough", "status": "completed", "files_changed": ["autoresearch/loop.py"] },
-      { "id": "T003", "slug": "config-yaml-keys", "status": "completed", "files_changed": ["config.yaml"] },
-      { "id": "T004", "slug": "tests-engine-and-loop", "status": "completed", "files_changed": ["tests/test_backtest_engine.py", "tests/test_autoresearch_loop_wf.py"], "notes": "8 new engine tests + 12 new loop tests = 20 new tests (vs required 8)" }
-    ]},
-    "phase_5": { "status": "completed", "notes": "Self-review: existing tests preserved; new tests follow established patterns; single-symbol path identical to pre-change behaviour." },
-    "phase_6": { "status": "skipped", "notes": "No infra changes." },
-    "phase_6_5": { "status": "skipped", "notes": "Branch decision deferred to user." },
-    "summary": { "status": "completed" }
+    "phase_0": { "status": "completed" },
+    "phase_0_5": { "status": "completed", "notes": "User approved with Decision 3 changed: Slack DROPPED, log-only alerts." },
+    "phase_1": { "status": "completed", "artifact": "pipeline/plan.md", "task_count": 14 },
+    "phase_1_5": { "status": "completed", "verdict": "approve", "carry_forward": ["CF-1: dedupe cumulative closed", "CF-2: open_time fallback"] },
+    "phase_2": { "status": "completed", "artifact": "pipeline/context-map.md" },
+    "phase_3": { "status": "completed", "verdict": "pass", "warns": 1 },
+    "phase_4": {
+      "status": "completed",
+      "completed_at": "2026-04-26T01:00:00Z",
+      "tasks": [
+        { "id": "T001", "slug": "monitoring-package-init", "status": "completed", "files_changed": ["core/monitoring/__init__.py"] },
+        { "id": "T002", "slug": "config-yaml-extend", "status": "completed", "files_changed": ["config.yaml"] },
+        { "id": "T003", "slug": "possnap-and-diff", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
+        { "id": "T004", "slug": "jsonl-writer", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
+        { "id": "T005", "slug": "alerter-log-only", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
+        { "id": "T006", "slug": "poll-once", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"], "carry_forward_applied": ["CF-1", "CF-2"] },
+        { "id": "T007", "slug": "thread-lifecycle", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
+        { "id": "T008", "slug": "main-py-wire", "status": "completed", "files_changed": ["main.py"] },
+        { "id": "T009", "slug": "tests-diff", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
+        { "id": "T010", "slug": "tests-jsonl-writer", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
+        { "id": "T011", "slug": "tests-alerter-no-slack-guard", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
+        { "id": "T012", "slug": "tests-poll-once-e2e", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
+        { "id": "T013", "slug": "tests-thread-lifecycle", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
+        { "id": "T014", "slug": "integration-test-run", "status": "completed", "notes": "324 passed (308 existing + 16 new). Verified in main session." }
+      ]
+    },
+    "phase_4_5": { "status": "completed", "notes": "324 passed, 0 failed. Test run: python -m pytest -q, 37.89s." },
+    "phase_5": { "status": "completed", "notes": "Self-review: existing 308 tests unchanged. New 16 tests all pass. No Slack/network surface (verified by test_alerter_no_slack_imports)." },
+    "phase_6": { "status": "skipped", "reason": "no infrastructure files changed" },
+    "phase_6_5": { "status": "skipped", "reason": "no deployment step" },
+    "summary": { "status": "completed", "artifact": "pipeline/build-summary.md" }
   },
-  "context_pct": 50,
-  "escalations": [
-    { "phase": "phase_4", "issue": "No Bash tool available — full test suite cannot be executed by orchestrator. User must run `python3 -m pytest tests/ -q` to verify acceptance criteria." }
-  ],
+  "context_pct": 60,
+  "escalations": [],
   "aborted": false,
   "abort_reason": null,
   "worktree_path": null,
-  "design_brief_source": "user-provided requirement (inline spec)"
+  "design_brief_source": "pipeline/design-brief.md (APPROVED 2026-04-26 with Slack dropped — log-only alerts)"
 }

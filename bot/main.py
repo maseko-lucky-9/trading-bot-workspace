@@ -31,6 +31,7 @@ from core.data.history import HistoryFetcher  # noqa: E402
 from core.execution.live_broker import LiveBroker, LiveModeNotEnabled  # noqa: E402
 from core.execution.order_manager import OrderManager  # noqa: E402
 from core.execution.paper_broker import PaperBroker  # noqa: E402
+from core.monitoring.position_monitor import PositionMonitor  # noqa: E402
 from core.performance.tracker import PerformanceTracker  # noqa: E402
 from core.risk.manager import RiskManager  # noqa: E402
 from core.strategy.base import Strategy  # noqa: E402
@@ -137,6 +138,12 @@ def main(argv: list[str] | None = None) -> int:
         broker = PaperBroker(bridge)
     om = OrderManager(cfg, broker, tracker=tracker)
 
+    position_monitor: PositionMonitor | None = None
+    if args.mode == "live":
+        position_monitor = PositionMonitor(broker, cfg)
+        position_monitor.start()
+        print("position_monitor started")
+
     state = BotState()
     if args.resume:
         loaded = checkpoints.load()
@@ -229,6 +236,11 @@ def main(argv: list[str] | None = None) -> int:
                 break
             time.sleep(1)
     finally:
+        if position_monitor is not None:
+            try:
+                position_monitor.stop(timeout=2.0)
+            except Exception as exc:
+                print(f"position_monitor stop failed: {exc}", file=sys.stderr)
         try:
             checkpoints.save(state)
             checkpoints.rotate(keep=10)

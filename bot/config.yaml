@@ -17,6 +17,7 @@ risk:
   trailing_dd_warn: 0.10         # 10% DD → reduce position 30%
   trailing_dd_reduce: 0.15       # 15% DD → reduce position 50%
   trailing_dd_halt: 0.20         # 20% DD → halt all trading
+  alert_loss_usd: 50.0           # single-trade loss threshold for WARNING log
 
 autoresearch:
   target_sharpe: 1.5
@@ -32,3 +33,7 @@ autoresearch:
   cooldown_seconds: 3600     # wait this long before restarting after a run completes
   wf_train_pct: 0.8          # walk-forward hold-out fraction for guard calls (0.0 disables)
   multi_symbol_mean: true    # aggregate verify sharpe as mean across symbols
+
+monitoring:
+  poll_interval_s: 5            # PositionMonitor polling interval
+  log_path: "logs/positions.jsonl"

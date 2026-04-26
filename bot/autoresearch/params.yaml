@@ -1,6 +1,6 @@
 strategy: ema_crossover
 ema_fast: 24.0
-ema_slow: 25.0
+ema_slow: 35.0
 atr_multiplier: 5.0
 risk_pct: 0.01
 bb_period: 20
