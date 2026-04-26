@@ -1,49 +1,45 @@
 {
   "schema_version": "1.0",
-  "run_id": "20260426-position-monitor",
+  "run_id": "20260426-h1backfill",
   "started_at": "2026-04-26T00:00:00Z",
-  "updated_at": "2026-04-26T01:00:00Z",
+  "updated_at": "2026-04-26T13:30:00Z",
   "current_phase": "summary",
   "phase_status": "completed",
-  "requirement": "Live order monitoring for MT5 bot — PositionMonitor polls bridge, JSONL logs, fill/loss alerts (LOG-ONLY, no Slack), background thread in main.py with --live",
-  "project_root": "/Users/ltmas/trading-bot-workspace/bot",
+  "requirement_summary": "Build real H1 OHLCV history backfill module for MT5 trading bot. Pull >=5000 H1 bars per symbol via MT5 bridge, write idempotently to bridge_data/history/<SYMBOL>_H1.parquet, runnable as script, with mocked unit tests.",
   "phases": {
-    "phase_0": { "status": "completed" },
-    "phase_0_5": { "status": "completed", "notes": "User approved with Decision 3 changed: Slack DROPPED, log-only alerts." },
-    "phase_1": { "status": "completed", "artifact": "pipeline/plan.md", "task_count": 14 },
-    "phase_1_5": { "status": "completed", "verdict": "approve", "carry_forward": ["CF-1: dedupe cumulative closed", "CF-2: open_time fallback"] },
-    "phase_2": { "status": "completed", "artifact": "pipeline/context-map.md" },
-    "phase_3": { "status": "completed", "verdict": "pass", "warns": 1 },
+    "phase_0": { "status": "completed", "started_at": "2026-04-26T00:00:00Z", "completed_at": "2026-04-26T00:05:00Z", "duration_seconds": 300, "retries": 0, "artifact": "pipeline/intake-validation.md" },
+    "phase_0_5": { "status": "completed", "started_at": "2026-04-26T00:05:00Z", "completed_at": "2026-04-26T00:10:00Z", "duration_seconds": 300, "skipped": false, "decisions_locked": [1,2,3,4,5], "artifact": "pipeline/design-brief.md" },
+    "phase_1": { "status": "completed", "started_at": "2026-04-26T00:10:00Z", "completed_at": "2026-04-26T13:00:00Z", "duration_seconds": 46200, "retries": 0, "artifact": "pipeline/plan.md", "task_count": 4 },
+    "phase_1_5": { "status": "rolled_in", "notes": "Small scope (4 tasks); plan review folded into Plan analysis." },
+    "phase_2": { "status": "rolled_in", "notes": "Context recon done during Plan; bridge client, parquet schema, config all read." },
+    "phase_3": { "status": "rolled_in", "notes": "No infra surface; baseline 324 tests confirmed before implementation." },
     "phase_4": {
       "status": "completed",
-      "completed_at": "2026-04-26T01:00:00Z",
+      "started_at": "2026-04-26T13:00:00Z",
+      "completed_at": "2026-04-26T13:25:00Z",
+      "duration_seconds": 1500,
       "tasks": [
-        { "id": "T001", "slug": "monitoring-package-init", "status": "completed", "files_changed": ["core/monitoring/__init__.py"] },
-        { "id": "T002", "slug": "config-yaml-extend", "status": "completed", "files_changed": ["config.yaml"] },
-        { "id": "T003", "slug": "possnap-and-diff", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
-        { "id": "T004", "slug": "jsonl-writer", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
-        { "id": "T005", "slug": "alerter-log-only", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
-        { "id": "T006", "slug": "poll-once", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"], "carry_forward_applied": ["CF-1", "CF-2"] },
-        { "id": "T007", "slug": "thread-lifecycle", "status": "completed", "files_changed": ["core/monitoring/position_monitor.py"] },
-        { "id": "T008", "slug": "main-py-wire", "status": "completed", "files_changed": ["main.py"] },
-        { "id": "T009", "slug": "tests-diff", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
-        { "id": "T010", "slug": "tests-jsonl-writer", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
-        { "id": "T011", "slug": "tests-alerter-no-slack-guard", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
-        { "id": "T012", "slug": "tests-poll-once-e2e", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
-        { "id": "T013", "slug": "tests-thread-lifecycle", "status": "completed", "files_changed": ["tests/test_position_monitor.py"] },
-        { "id": "T014", "slug": "integration-test-run", "status": "completed", "notes": "324 passed (308 existing + 16 new). Verified in main session." }
+        { "id": "T1", "slug": "history-store", "status": "completed", "files_changed": ["core/data/history_store.py", "tests/test_history_store.py"], "tests_added": 11 },
+        { "id": "T2", "slug": "historical-client", "status": "completed", "files_changed": ["core/data/historical_client.py", "tests/test_historical_client.py"], "tests_added": 9 },
+        { "id": "T3", "slug": "backfill-cli", "status": "completed", "files_changed": ["scripts/backfill_history.py", "tests/test_backfill_history.py"], "tests_added": 13 },
+        { "id": "T4", "slug": "shell-wrapper", "status": "completed", "files_changed": ["scripts/backfill_history.sh"], "tests_added": 0, "notes": "Manual smoke (--help) verified." }
       ]
     },
-    "phase_4_5": { "status": "completed", "notes": "324 passed, 0 failed. Test run: python -m pytest -q, 37.89s." },
-    "phase_5": { "status": "completed", "notes": "Self-review: existing 308 tests unchanged. New 16 tests all pass. No Slack/network surface (verified by test_alerter_no_slack_imports)." },
+    "phase_4_5": { "status": "completed", "completed_at": "2026-04-26T13:27:00Z", "notes": "357 passed (324 baseline + 33 new), 0 failed. python -m pytest -q, 38.78s." },
+    "phase_5": { "status": "completed", "completed_at": "2026-04-26T13:28:00Z", "notes": "Self-review: existing 324 tests untouched. New 33 tests all pass. No synthetic fallback in new code path; BridgeUnavailableError raised on bridge failure. Atomic write via os.replace." },
     "phase_6": { "status": "skipped", "reason": "no infrastructure files changed" },
     "phase_6_5": { "status": "skipped", "reason": "no deployment step" },
-    "summary": { "status": "completed", "artifact": "pipeline/build-summary.md" }
+    "summary": { "status": "completed", "completed_at": "2026-04-26T13:30:00Z", "artifact": "pipeline/build-summary.md" }
   },
-  "context_pct": 60,
-  "escalations": [],
+  "context_pct": 65,
+  "escalations": [
+    { "phase": "phase_0_5", "type": "tool_unavailable", "summary": "pipeline-orchestrator subagent lacked Agent/Bash/Grep tools; main thread took over orchestration after design gate.", "resolution": "User authorized main-thread orchestration; all phases completed." },
+    { "phase": "phase_1", "type": "design_deviation", "summary": "Pagination loop is degenerate today: bridge /history endpoint accepts only bars count, no offset. Wrapper preserved the seam; documented in plan.md and build-summary.md.", "resolution": "Accepted; doesn't violate locked decisions 1-5." }
+  ],
   "aborted": false,
   "abort_reason": null,
   "worktree_path": null,
-  "design_brief_source": "pipeline/design-brief.md (APPROVED 2026-04-26 with Slack dropped — log-only alerts)"
+  "design_brief_source": "pipeline/design-brief.md (APPROVED 2026-04-26 with 5 decisions locked)",
+  "dual_client": false,
+  "scope_warning": false
 }

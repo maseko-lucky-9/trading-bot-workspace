@@ -20,8 +20,8 @@ def reset_server_state():
         srv._state["positions"] = []
         srv._command_queue.clear()
         srv._result_log.clear()
-        srv._h1_bars.clear()
-        srv._h1_open_bar.clear()
+        srv._tf_bars.clear()
+        srv._tf_open_bar.clear()
     yield
 
 

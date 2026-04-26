@@ -134,13 +134,57 @@ class MT5BridgeClient:
         return self._get("/state")
 
     def get_history(
-        self, symbol: str = "EURUSD", timeframe: str = "H1", bars: int = 500
+        self,
+        symbol: str = "EURUSD",
+        timeframe: str = "H1",
+        bars: int = 500,
+        from_time: int | None = None,
+        offset: int = 0,
     ) -> list[dict]:
+        bars_data, _source = self.get_history_with_source(
+            symbol=symbol, timeframe=timeframe, bars=bars,
+            from_time=from_time, offset=offset,
+        )
+        return bars_data
+
+    def get_history_with_source(
+        self,
+        symbol: str = "EURUSD",
+        timeframe: str = "H1",
+        bars: int = 500,
+        from_time: int | None = None,
+        offset: int = 0,
+    ) -> tuple[list[dict], str]:
+        """Return (bars, source) where source is the bridge's self-reported
+        provenance string (e.g. ``"live"``, ``"synthetic"``, ``"cache"``).
+
+        Bridge synthesises bars locally for symbols/timeframes the EA hasn't
+        provided real data for. Callers that need to distinguish real-vs-fake
+        data must use this method, not :meth:`get_history`.
+        """
+        params: dict = {"symbol": symbol, "timeframe": timeframe, "bars": bars}
+        if from_time is not None:
+            params["from_time"] = from_time
+        if offset:
+            params["offset"] = offset
+        data = self._get("/history", params=params)
+        return data.get("bars", []), str(data.get("source", "unknown"))
+
+    def get_bar_count(self, symbol: str, timeframe: str) -> int:
+        """Return the number of real accumulated bars the bridge holds for symbol/timeframe."""
         data = self._get(
             "/history",
-            params={"symbol": symbol, "timeframe": timeframe, "bars": bars},
+            params={"symbol": symbol, "timeframe": timeframe, "bars": 1},
         )
-        return data.get("bars", [])
+        return int(data.get("total_available", 0))
+
+    def request_fetch_history(self, symbol: str, timeframe: str, count: int) -> dict:
+        """Queue a FETCH_HISTORY command for the EA to execute via CopyRates."""
+        return self._post(
+            "/order",
+            json={"action": "FETCH_HISTORY", "symbol": symbol,
+                  "timeframe": timeframe, "count": count},
+        )
 
     def send_order(self, cmd: dict) -> dict:
         return self._post("/order", json=cmd)

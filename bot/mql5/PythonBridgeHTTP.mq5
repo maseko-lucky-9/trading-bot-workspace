@@ -10,16 +10,17 @@ input int    TICK_INTERVAL   = 1000;  // ms between tick pushes
 input int    CMD_POLL_MS     = 500;   // ms between command polls
 input bool   LOG_VERBOSE     = false;
 
-string url_tick, url_account, url_heartbeat, url_command, url_result;
+string url_tick, url_account, url_heartbeat, url_command, url_result, url_history_batch;
 
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   url_tick      = SERVER_URL + "/tick";
-   url_account   = SERVER_URL + "/account";
-   url_heartbeat = SERVER_URL + "/heartbeat";
-   url_command   = SERVER_URL + "/command";
-   url_result    = SERVER_URL + "/result";
+   url_tick          = SERVER_URL + "/tick";
+   url_account       = SERVER_URL + "/account";
+   url_heartbeat     = SERVER_URL + "/heartbeat";
+   url_command       = SERVER_URL + "/command";
+   url_result        = SERVER_URL + "/result";
+   url_history_batch = SERVER_URL + "/history-batch";
 
    // Verify connection
    string resp = HttpPost(SERVER_URL + "/heartbeat", "{}");
@@ -116,6 +117,8 @@ void PollCommand()
       ExecuteTrade(action, resp);
    else if (action == "CLOSE")
       CloseTrade((ulong)StringToInteger(ExtractField(resp, "ticket")));
+   else if (action == "FETCH_HISTORY")
+      FetchHistory(resp);
 }
 
 //+------------------------------------------------------------------+
@@ -168,6 +171,77 @@ void CloseTrade(ulong ticket)
    bool ok = OrderSend(req, res);
    HttpPost(url_result, "{\"action\":\"CLOSE\",\"success\":" +
             (ok ? "true" : "false") + ",\"ticket\":" + IntegerToString(ticket) + "}");
+}
+
+//+------------------------------------------------------------------+
+void FetchHistory(string json)
+{
+   string sym    = ExtractField(json, "symbol");
+   string tf_str = ExtractField(json, "timeframe");
+   int    count  = (int)StringToInteger(ExtractField(json, "count"));
+   if (sym   == "") sym   = Symbol();
+   if (tf_str == "") tf_str = "H1";
+   if (count <= 0 || count > 20000) count = 5000;
+
+   ENUM_TIMEFRAMES tf = StringToTF(tf_str);
+   MqlRates rates[];
+   int copied = CopyRates(sym, tf, 0, count, rates);
+
+   if (copied <= 0)
+   {
+      HttpPost(url_result, "{\"action\":\"FETCH_HISTORY\",\"success\":false,"
+               "\"symbol\":\"" + sym + "\",\"timeframe\":\"" + tf_str + "\","
+               "\"count\":0}");
+      return;
+   }
+
+   // Post in 500-bar chunks — bridge sorts and deduplicates on receipt
+   int CHUNK = 500;
+   for (int i = 0; i < copied; i += CHUNK)
+   {
+      int sz = MathMin(CHUNK, copied - i);
+      PostHistoryBatch(sym, tf_str, rates, i, sz);
+   }
+
+   HttpPost(url_result, "{\"action\":\"FETCH_HISTORY\",\"success\":true,"
+            "\"symbol\":\"" + sym + "\",\"timeframe\":\"" + tf_str + "\","
+            "\"count\":" + IntegerToString(copied) + "}");
+   Print("FETCH_HISTORY: ", sym, " ", tf_str, " copied=", copied);
+}
+
+//+------------------------------------------------------------------+
+ENUM_TIMEFRAMES StringToTF(string tf)
+{
+   if (tf == "M1")  return PERIOD_M1;
+   if (tf == "M5")  return PERIOD_M5;
+   if (tf == "M15") return PERIOD_M15;
+   if (tf == "M30") return PERIOD_M30;
+   if (tf == "H1")  return PERIOD_H1;
+   if (tf == "H4")  return PERIOD_H4;
+   if (tf == "D1")  return PERIOD_D1;
+   return PERIOD_H1;
+}
+
+//+------------------------------------------------------------------+
+void PostHistoryBatch(string sym, string tf, MqlRates &rates[], int start, int count)
+{
+   string body = "{\"symbol\":\"" + sym + "\","
+                 "\"timeframe\":\"" + tf + "\","
+                 "\"bars\":[";
+   for (int i = start; i < start + count; i++)
+   {
+      if (i > start) body += ",";
+      body += "{";
+      body += "\"time\":"   + IntegerToString(rates[i].time) + ",";
+      body += "\"open\":"   + DoubleToString(rates[i].open, 5) + ",";
+      body += "\"high\":"   + DoubleToString(rates[i].high, 5) + ",";
+      body += "\"low\":"    + DoubleToString(rates[i].low, 5) + ",";
+      body += "\"close\":"  + DoubleToString(rates[i].close, 5) + ",";
+      body += "\"volume\":" + IntegerToString((long)rates[i].tick_volume);
+      body += "}";
+   }
+   body += "]}";
+   HttpPost(url_history_batch, body);
 }
 
 //+------------------------------------------------------------------+

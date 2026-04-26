@@ -146,10 +146,12 @@ def test_phase_decide_keep_on_guard_pass(tmp_path):
     assert loop.phase_decide(1.0, 1.1, True, 55.0, 56.0) == "keep"
 
 
-def test_phase_decide_keep_on_improved_wr(tmp_path):
+def test_phase_decide_rollback_on_sharpe_regression_even_with_better_wr(tmp_path):
+    """Wave 0 / F8 — leniency-keeps on guard failure were removed because they
+    polluted the search history with noise-driven mutations. Now any Sharpe
+    regression (without guard pass) triggers rollback regardless of win-rate."""
     loop = _make_loop(tmp_path)
-    # guard fails but win_rate improved and sharpe not badly regressed
-    assert loop.phase_decide(1.0, 0.95, False, 50.0, 55.0) == "keep"
+    assert loop.phase_decide(1.0, 0.95, False, 50.0, 55.0) == "rollback"
 
 
 def test_phase_decide_rollback_when_worse(tmp_path):

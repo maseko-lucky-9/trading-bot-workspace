@@ -23,7 +23,7 @@ autoresearch:
   target_sharpe: 1.5
   max_drawdown_guard: 0.05
   min_win_rate_guard: 0.43          # fallback when strategy-specific value is absent
-  min_win_rate_guard_ema: 0.38      # EMA crossover has structurally lower win rate (high R:R)
+  min_win_rate_guard_ema: 0.30      # EMA crossover break-even at ~2.3:1 R:R (ATR 1.5× SL/TP); Sharpe is the primary gate
   min_win_rate_guard_mr: 0.50       # mean reversion targets higher win rate; raise to 0.55 on real data
   iterations: 50
   metric_command: "python backtest/engine.py --metric sharpe"

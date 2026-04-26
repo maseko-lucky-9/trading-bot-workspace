@@ -1,83 +1,90 @@
-# Design Brief — Live Position Monitor
+# Design Brief — H1 OHLCV History Backfill
 
-**Run ID:** 20260426-position-monitor
-**Status:** AWAITING USER APPROVAL
+**Run ID:** 20260426-h1backfill
+**Date:** 2026-04-26
+**Status:** APPROVED (decisions locked by user)
+**Source:** Inline Socratic refinement (no pre-existing spec)
+**Note:** This brief supersedes the prior PositionMonitor brief (archived in git history).
+
+---
 
 ## Goal
-Add a `PositionMonitor` background component that polls the MT5 bridge for open/closed positions, logs every state change as NDJSON, prints fill summaries, and alerts on large losses (log + optional Slack) — without modifying any existing public interface.
+
+Build a reusable backfill module + CLI script that pulls real H1 OHLCV bars from the running MT5 bridge and idempotently tops up `bridge_data/history/<SYMBOL>_H1.parquet` until each symbol has at least the target cached bar count (default 5,000), so the backtest engine produces statistically valid results from real (not synthetic) data.
+
+---
 
 ## Chosen Approach
 
-### Architecture (ASCII)
-
-```
-main.py (--mode live)
-  │
-  ├── LiveBroker (existing, unchanged)
-  │
-  └── PositionMonitor (new — core/monitoring/position_monitor.py)
-        │
-        ├── _PollerThread (daemon)
-        │     loop: every poll_interval_s
-        │       open_now    = broker.get_positions()
-        │       closed_new  = broker.get_closed()
-        │       diff vs last snapshot → events
-        │       for each event: write NDJSON, maybe alert
-        │
-        ├── _JsonlWriter
-        │     RotatingFileHandler(maxBytes=10MB, backupCount=10)
-        │     7-day cleanup at start() + after each rollover
-        │
-        └── _Alerter
-              if loss > risk.alert_loss_usd: WARNING log
-              if SLACK_WEBHOOK_URL set: urllib POST (timeout=2s)
-```
-
-### Decisions
-
-| # | Concern | Decision | Rationale |
+| # | Decision | Choice | Rationale |
 |---|---|---|---|
-| 1 | Log rotation | `logging.handlers.RotatingFileHandler(maxBytes=10*1024*1024, backupCount=10)` + 7-day cleanup pass at start + after rollover | Stdlib only; size cap exact; age cleanup cheap and lazy |
-| 2 | State diffing | Snapshot-based: `dict[ticket, position_dict]` of last-seen positions; closes consumed from `broker.get_closed()` since last poll | Single source of truth; opened/modified/closed all derived in one place |
-| 3 | Slack delivery | **DROPPED** — log-only alerts. No Slack integration, no env-var dependency. | User decision: simpler, zero external surface area |
-| 4 | Module layout | `core/monitoring/__init__.py`, `core/monitoring/position_monitor.py`, `tests/test_position_monitor.py` | Mirrors existing `core/<bounded-context>/` layout |
-| 5 | Config additions | `risk.alert_loss_usd: 50.0`, `monitoring.poll_interval_s: 5`, `monitoring.log_path: "logs/positions.jsonl"` | Existing `risk:` block extended; new `monitoring:` block for monitor-specific keys |
-| 6 | `main.py` integration | Construct `PositionMonitor(broker, cfg)` only when `args.mode == "live"`; `start()` after `LiveBroker` init; `stop()` in `finally` | Mirrors existing `_start_autoresearch` thread pattern; zero changes to `while _running:` body |
-| 7 | Test isolation | Inject `broker`, `clock`, and `slack_post_fn` (override `urllib`) via constructor with sensible defaults | Pure-unit testing without sleep/network |
+| 1 | **Symbol set source** | CLI `--symbols` override; default reads `config.yaml` `bot.instruments` | Single source of truth (config) with operator escape hatch for ad-hoc backfills (e.g., warm a new symbol before adding it to config). |
+| 2 | **Lookback strategy** | Top-up to target (`--target 5000`); fetch only the gap to reach the target cached bar count | Idempotent and incremental. Resumes after partial runs naturally (AC7). Avoids re-fetching bars already on disk. |
+| 3 | **Merge semantics on overlap** | Prefer-existing — cached row wins; bridge row skipped on timestamp conflict | Conservative; protects historical cache from any bridge revisions. Deterministic and easy to reason about. |
+| 4 | **Bridge connection pattern** | New `HistoricalDataClient` wrapper module owning pagination/retries/rate-limiting; depends on `MT5BridgeClient` for transport | Separation of concerns: transport stays in `MT5BridgeClient`; history-specific concerns (pagination, retry/backoff, dedup-on-fetch) live in the wrapper. Keeps `MT5BridgeClient` lean and reusable. |
+| 5 | **Script style** | Both: `scripts/backfill_history.py` (Python module with `if __name__ == "__main__"`) **plus** `scripts/backfill_history.sh` thin shell wrapper that activates venv and forwards args | Python module is testable and importable; shell wrapper matches `start_bridge.sh` precedent for operators. Forwards `"$@"` so all CLI flags pass through. |
 
-### Trade-offs Accepted
+---
 
-- **Polling latency:** up to `poll_interval_s` (5s) between fill and operator notification.
-- **Slack blocking:** alert path may block poller for up to 2s on slow Slack endpoint.
-- **7-day cleanup is lazy:** runs at `start()` and after rotation, not on a wall-clock timer. Bounded by 10 MB cap.
-- **Snapshot drift on crash:** restart re-emits current open positions as `opened` events (no monitor-state persistence). Documented behaviour.
+## Architecture (high level)
 
-### Open Question
+```
+scripts/backfill_history.sh
+        │  exec python -m scripts.backfill_history "$@"
+        ▼
+scripts/backfill_history.py  (CLI: argparse, logging, exit codes)
+        │
+        ▼
+core/data/historical_client.py  (new HistoricalDataClient)
+        │   • pagination loop (request N bars at a time, walk backwards)
+        │   • retry/backoff on transient bridge errors
+        │   • rate-limiting (sleep between requests)
+        │   • returns DataFrame with canonical schema
+        ▼
+core/bridge/MT5BridgeClient  (existing — transport only)
+        │
+        ▼
+   MT5 Bridge HTTP API
 
-- Flag naming: requirement says `--live`; existing CLI uses `--mode live`. Plan will gate monitor on `args.mode == "live"` (no CLI churn).
+────────────────────────────────────────────────────────────
 
-## Files Touched
+core/data/history_store.py  (new — parquet I/O + merge)
+        • read_existing(symbol) -> DataFrame | None
+        • merge_prefer_existing(cached, fetched) -> DataFrame
+        • write_atomic(df, path)  (write to .tmp then rename)
+```
 
-| File | Action |
+---
+
+## Trade-offs Accepted
+
+- **Prefer-existing merge** means we cannot retroactively absorb bridge corrections to historical bars without manually deleting the cache. Acceptable: bridge corrections to closed H1 candles are vanishingly rare; safety > freshness.
+- **New `HistoricalDataClient` module** adds one more file/abstraction vs. fattening `MT5BridgeClient`. Cost: small. Benefit: clear seam for mocking in unit tests; isolates pagination logic the live trading path doesn't need.
+- **Top-up-to-target** strategy means the script's runtime depends on current cache state — first run fetches a lot, subsequent runs are near-noops. Acceptable; documented in `--help`.
+- **Both Python module + shell wrapper** = two surface areas to maintain. Cost is negligible — wrapper is ~5 lines, just forwards args.
+
+---
+
+## Open Questions
+
+None. All five decisions locked by user 2026-04-26.
+
+---
+
+## Acceptance Criteria Mapping (from intake)
+
+| AC | Addressed by |
 |---|---|
-| `core/monitoring/__init__.py` | NEW (empty) |
-| `core/monitoring/position_monitor.py` | NEW |
-| `tests/test_position_monitor.py` | NEW |
-| `config.yaml` | MODIFY — add `risk.alert_loss_usd` + `monitoring:` block |
-| `main.py` | MODIFY — instantiate + start/stop monitor only in live mode |
+| AC1 (≥5000 bars) | Decision 2 (top-up to target); CLI default `--target 5000`. |
+| AC2 (idempotent) | Decision 2 + Decision 3 (top-up + prefer-existing). |
+| AC3 (schema match) | `history_store.read_existing` reads schema from existing parquet first; `HistoricalDataClient` produces matching dtypes; assert before write. |
+| AC4 (tests green) | New pytest tests with mocked `HistoricalDataClient`; existing 324-test suite untouched. |
+| AC5 (clear error on bridge down) | `HistoricalDataClient` raises `BridgeUnavailableError` on transport failure after retries exhausted; CLI exits non-zero with actionable message. |
+| AC6 (progress logging) | CLI logs per-symbol: target / cached / fetched / skipped / elapsed. |
+| AC7 (partial-fetch resumption) | Decision 2: top-up reads existing cache first, fetches only the gap. |
 
-## Acceptance Criteria Mapping
+---
 
-| AC | Component(s) |
-|---|---|
-| 1. Polling | `_PollerThread` |
-| 2. NDJSON log | `_JsonlWriter` |
-| 3. `[FILL]` stdout | `_Alerter.on_close()` |
-| 4. Loss alert (log-only, no Slack) | `_Alerter.send()` |
-| 5. Live-only, no main-loop change | `main.py` integration |
-| 6. Unit tests | `tests/test_position_monitor.py` |
-| 7. 308 tests stay green | Phase 4.5 full pytest run |
+## Approval
 
-## User Approval
-
-**APPROVED** — 2026-04-26. Decision 3 changed: Slack integration dropped; log-only alerts. Proceed to Phase 1.
+User explicitly approved decisions 1–5 on 2026-04-26 prior to resuming the pipeline. Phase 0.5 gate satisfied. Proceeding to Phase 1.

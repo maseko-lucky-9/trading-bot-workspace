@@ -21,3 +21,4 @@ logs/
 # Secrets
 .env
 *.env
+bot/pipeline/state-20260426-position-monitor.json

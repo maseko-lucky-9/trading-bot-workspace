@@ -1,0 +1,4 @@
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8080): [errno 48] address already in use
+MT5 HTTP Bridge listening on http://0.0.0.0:8080
+EA should connect to: http://192.168.64.1:8080
+Bridge data dir: /Users/ltmas/trading-bot-workspace/bot/bridge_data

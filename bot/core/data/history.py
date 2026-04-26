@@ -107,24 +107,58 @@ class HistoryFetcher:
     def fetch(
         self, symbol: str = "EURUSD", timeframe: str = "H1", bars: int = 500
     ) -> pd.DataFrame:
+        df, _source = self.fetch_with_source(symbol, timeframe, bars)
+        return df
+
+    def fetch_with_source(
+        self, symbol: str = "EURUSD", timeframe: str = "H1", bars: int = 500
+    ) -> tuple[pd.DataFrame, str]:
+        """Fetch and report whether the data came from the bridge or the
+        synthetic random walk fallback. Returns ("bridge", "synthetic")."""
         rows: list[dict] = []
+        bridge_source = "unknown"
         try:
-            rows = self.bridge.get_history(symbol=symbol, timeframe=timeframe, bars=bars)
+            # Prefer the source-aware API. Detect via duck-typing on the
+            # *return value* — MagicMock spoofs hasattr(), so we must inspect
+            # what actually comes back.
+            got = None
+            if hasattr(self.bridge, "get_history_with_source"):
+                got = self.bridge.get_history_with_source(
+                    symbol=symbol, timeframe=timeframe, bars=bars,
+                )
+            if (
+                isinstance(got, tuple)
+                and len(got) == 2
+                and isinstance(got[0], list)
+            ):
+                rows, bridge_source = got
+            else:
+                rows = self.bridge.get_history(
+                    symbol=symbol, timeframe=timeframe, bars=bars,
+                )
         except Exception:
             rows = []
-        if not rows:
-            rows = self._synthesize(symbol, timeframe, bars)
+        # Bridge may itself report "synthetic" when the EA hasn't supplied
+        # real bars for the requested symbol/timeframe — propagate that.
+        synthetic_from_bridge = bridge_source.lower() == "synthetic"
+        if not rows or synthetic_from_bridge:
+            if not rows:
+                rows = self._synthesize(symbol, timeframe, bars)
+            source = "synthetic"
+        else:
+            source = "bridge"
 
         df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
-        # Coerce types
         df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
         for c in ("open", "high", "low", "close"):
             df[c] = df[c].astype(float)
         df["volume"] = df["volume"].astype(int)
         df = df.sort_values("time").reset_index(drop=True)
-        # Cache
-        try:
-            self.save_cache(df, symbol, timeframe)
-        except Exception:
-            pass
-        return df
+        # Cache only real bridge data; never persist synthetic fallback noise
+        # to the parquet store (would silently corrupt later real backtests).
+        if source == "bridge":
+            try:
+                self.save_cache(df, symbol, timeframe)
+            except Exception:
+                pass
+        return df, source

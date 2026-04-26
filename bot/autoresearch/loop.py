@@ -4,10 +4,22 @@ AutoresearchLoop (US-010).
 Eight-phase coordinate-descent search over the params.yaml overlay.
 Each iteration tweaks one parameter, re-runs the backtest CLI, parses
 ``SHARPE`` and the guard exit code, and either keeps or rolls back.
+
+Wave 0 changes (F4, F5):
+- ``phase_verify`` now invokes ``backtest/engine.py`` with
+  ``--cv kfold:N --embargo M`` so the optimisation metric is
+  out-of-sample. The full-window codepath remains as a fallback when
+  ``autoresearch.cv_n_splits`` is set to 0.
+- The keep/rollback decision uses the **deflated Sharpe ratio** (DSR),
+  which corrects raw Sharpe for the inflation introduced by repeatedly
+  searching over the same dataset (López de Prado, AFML Ch. 11).
+- ``results.tsv`` has a new ``dsr`` column. Old files are rotated to
+  ``.bak`` automatically (existing schema-change rotation logic).
 """
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import sys
@@ -45,6 +57,49 @@ _WR_RE     = re.compile(r"win_rate=([0-9.]+)%")
 _DD_RE     = re.compile(r"drawdown=([0-9.]+)%")
 
 
+def deflated_sharpe(observed_sr: float, trial_srs: list[float],
+                    n_returns: int = 252) -> float:
+    """Pragmatic deflated-Sharpe estimate (López de Prado, AFML Ch. 11).
+
+    Returns ``observed_sr - expected_max_sr_under_null`` where the expected
+    maximum is the Gumbel approximation over ``len(trial_srs)`` independent
+    Gaussian draws. We deliberately drop the skew/kurtosis correction (PSR's
+    third-/fourth-moment terms) because we do not have access to the per-bar
+    return series from the engine subprocess — what we get back is one Sharpe
+    number. The result is interpretable as "Sharpe in excess of what random
+    search would hand you for free".
+
+    Edge cases:
+    - With <2 trials, returns ``observed_sr`` unchanged (no penalty
+      computable).
+    - With zero std across trials, returns ``observed_sr`` unchanged.
+    - The ``n_returns`` parameter is reserved for a future PSR upgrade; not
+      currently used in the no-skew variant.
+    """
+    finite = [s for s in trial_srs if math.isfinite(s)]
+    n = len(finite)
+    if n < 2:
+        return observed_sr
+    mean_sr = sum(finite) / n
+    var = sum((s - mean_sr) ** 2 for s in finite) / (n - 1)
+    sr_std = math.sqrt(var)
+    if sr_std == 0.0:
+        return observed_sr
+    # Gumbel approximation of E[max of N iid standard normals]
+    if n == 1:
+        e_max_z = 0.0
+    elif n == 2:
+        e_max_z = 0.5641895835  # 1 / sqrt(pi)
+    else:
+        log_n = math.log(n)
+        e_max_z = math.sqrt(2.0 * log_n) - (
+            (math.log(math.log(n)) + math.log(4.0 * math.pi))
+            / (2.0 * math.sqrt(2.0 * log_n))
+        )
+    sr_threshold = mean_sr + sr_std * e_max_z
+    return float(observed_sr - sr_threshold)
+
+
 class AutoresearchLoop:
     def __init__(
         self,
@@ -70,13 +125,18 @@ class AutoresearchLoop:
         self._symbols = self._configured_symbols()
         # Walk-forward + multi-symbol aggregation config (loaded from config.yaml)
         self._wf_train_pct, self._multi_symbol_mean = self._load_autoresearch_cfg()
+        self._cv_n_splits, self._cv_embargo = self._load_cv_cfg()
+        # Track historical Sharpes (in-process) for DSR; loaded from existing
+        # results.tsv on init so the multiple-testing penalty includes prior
+        # iterations across restarts.
+        self._sharpe_history: list[float] = self._load_sharpe_history()
 
     # ------------------------------------------------------------------ #
     # Helpers                                                            #
     # ------------------------------------------------------------------ #
 
     _RESULTS_HEADER = (
-        "iteration\tparam\told_val\tnew_val\tsharpe\tmax_dd\t"
+        "iteration\tparam\told_val\tnew_val\tsharpe\tdsr\tmax_dd\t"
         "win_rate\tdecision\tstrategy\ttimestamp\n"
     )
 
@@ -114,6 +174,22 @@ class AutoresearchLoop:
             return list(instruments) if instruments else ["EURUSD"]
         except Exception:
             return ["EURUSD"]
+
+    def _load_cv_cfg(self) -> tuple[int, int]:
+        """Read autoresearch.cv_n_splits and autoresearch.cv_embargo.
+
+        Defaults: 5-fold with 24-bar embargo (1 day on H1). Set
+        ``cv_n_splits: 0`` in config to disable k-fold and fall back to the
+        old full-window verify path.
+        """
+        try:
+            cfg = yaml.safe_load(self.config_path.read_text()) or {}
+            ar = (cfg.get("autoresearch") or {})
+            n_splits = int(ar.get("cv_n_splits", 5))
+            embargo = int(ar.get("cv_embargo", 24))
+            return max(0, n_splits), max(0, embargo)
+        except Exception:
+            return 5, 24
 
     def _load_autoresearch_cfg(self) -> tuple[float, bool]:
         """Read autoresearch.wf_train_pct and autoresearch.multi_symbol_mean.
@@ -209,26 +285,59 @@ class AutoresearchLoop:
     def phase_commit(self, proposal: dict) -> dict:
         return {"committed_at": datetime.now(tz=timezone.utc).isoformat(), **proposal}
 
+    def _load_sharpe_history(self) -> list[float]:
+        """Read prior Sharpe values from results.tsv so DSR's multiple-testing
+        penalty spans loop restarts."""
+        if not self.results_path.exists():
+            return []
+        out: list[float] = []
+        try:
+            with self.results_path.open() as f:
+                next(f, None)  # skip header
+                for line in f:
+                    parts = line.rstrip("\n").split("\t")
+                    if len(parts) < 5:
+                        continue
+                    try:
+                        out.append(float(parts[4]))
+                    except ValueError:
+                        continue
+        except Exception:
+            return []
+        return out
+
+    def _verify_flags(self) -> tuple[str, ...]:
+        """Build the verify-time CLI flags. Uses purged k-fold when configured
+        (Wave 0 default) and falls back to the legacy full-window call if
+        cv_n_splits == 0."""
+        if self._cv_n_splits >= 2:
+            return (
+                "--metric", "sharpe",
+                "--cv", f"kfold:{self._cv_n_splits}",
+                "--embargo", str(self._cv_embargo),
+            )
+        return ("--metric", "sharpe")
+
     def phase_verify(self) -> float:
-        """Sharpe across configured symbols.
+        """Sharpe across configured symbols, evaluated via purged k-fold CV.
 
         Aggregation rule:
-        - len(symbols) == 1 → return that symbol's sharpe (single-call path,
-          identical to pre-change behaviour).
+        - len(symbols) == 1 → return that symbol's k-fold-mean sharpe.
         - len(symbols) > 1 AND multi_symbol_mean=True → mean across symbols.
-        - len(symbols) > 1 AND multi_symbol_mean=False → first symbol only
-          (preserves single-symbol semantics for users opting out).
+        - len(symbols) > 1 AND multi_symbol_mean=False → first symbol only.
 
-        Verify deliberately uses the FULL bar window (no walk-forward) — only
-        guard calls apply the holdout.
+        F4: This now uses ``--cv kfold:N --embargo M`` so the optimisation
+        metric is the mean per-fold OOS Sharpe, not the in-sample full-window
+        Sharpe. Set ``autoresearch.cv_n_splits: 0`` to opt out.
         """
+        flags = self._verify_flags()
         if len(self._symbols) == 1 or not self._multi_symbol_mean:
             sym = self._symbols[0]
-            _, out, _ = self._run_engine("--metric", "sharpe", symbol=sym)
+            _, out, _ = self._run_engine(*flags, symbol=sym)
             return self._parse_sharpe(out)
         sharpes: list[float] = []
         for sym in self._symbols:
-            _, out, _ = self._run_engine("--metric", "sharpe", symbol=sym)
+            _, out, _ = self._run_engine(*flags, symbol=sym)
             sharpes.append(self._parse_sharpe(out))
         return sum(sharpes) / len(sharpes) if sharpes else float("-inf")
 
@@ -266,13 +375,24 @@ class AutoresearchLoop:
         guard_pass: bool,
         baseline_wr: float,
         new_wr: float,
+        baseline_dsr: float | None = None,
+        new_dsr: float | None = None,
     ) -> str:
+        """Keep/rollback decision based on raw OOS Sharpe (from k-fold) +
+        guard pass.
+
+        We deliberately do NOT use DSR for per-iteration decisions: the
+        multiple-testing penalty grows monotonically with each iteration,
+        making baseline_dsr and new_dsr non-comparable across the loop. DSR is
+        instead reported at end-of-run as an honesty check on the final
+        winner. The ``baseline_dsr`` / ``new_dsr`` parameters are accepted for
+        API stability but currently unused.
+        """
         if guard_pass:
-            return "keep"  # full guard pass always keeps
-        # Greedy: keep if win_rate improved AND sharpe didn't regress badly
-        if new_wr > baseline_wr and new_sharpe >= baseline_sharpe * 0.9:
             return "keep"
-        # Keep pure sharpe improvements when already close to guard
+        # Without a guard pass we now require strict improvement on both
+        # Sharpe AND win-rate — no leniency-keeps on guard failure (was a
+        # source of noise in the legacy decision rule).
         if new_sharpe > baseline_sharpe and new_wr >= baseline_wr:
             return "keep"
         return "rollback"
@@ -285,6 +405,7 @@ class AutoresearchLoop:
         guard_text: str,
         decision: str,
         strategy: str = "",
+        dsr: float | None = None,
     ) -> None:
         max_dd = ""
         win_rate = ""
@@ -294,11 +415,12 @@ class AutoresearchLoop:
         m_wr = re.search(r"win_rate=([0-9.]+)%", guard_text)
         if m_wr:
             win_rate = m_wr.group(1)
+        dsr_str = "" if dsr is None else f"{dsr:.4f}"
         ts = datetime.now(tz=timezone.utc).isoformat()
         with self.results_path.open("a") as f:
             f.write(
                 f"{iteration}\t{proposal['param']}\t{proposal['old']}\t{proposal['new']}\t"
-                f"{sharpe:.4f}\t{max_dd}\t{win_rate}\t{decision}\t{strategy}\t{ts}\n"
+                f"{sharpe:.4f}\t{dsr_str}\t{max_dd}\t{win_rate}\t{decision}\t{strategy}\t{ts}\n"
             )
 
     def phase_compare_strategies(self, params: dict) -> dict:
@@ -341,6 +463,8 @@ class AutoresearchLoop:
         params = self.phase_compare_strategies(params)
         # Baseline
         baseline = self.phase_verify()
+        self._sharpe_history.append(baseline)
+        baseline_dsr = deflated_sharpe(baseline, self._sharpe_history)
         consecutive_keeps = 0
         last_decision = ""
 
@@ -354,15 +478,29 @@ class AutoresearchLoop:
             new_params = self.phase_modify(params, proposal)
             self.phase_commit(proposal)
             new_sharpe = self.phase_verify()
+            self._sharpe_history.append(new_sharpe)
+            new_dsr = deflated_sharpe(new_sharpe, self._sharpe_history)
             guard_pass, guard_text, new_wr, new_dd = self.phase_guard()
-            decision = self.phase_decide(baseline, new_sharpe, guard_pass, baseline_wr, new_wr)
-            self.phase_log(i, proposal, new_sharpe, guard_text, decision, strategy=current_strategy)
+            decision = self.phase_decide(
+                baseline, new_sharpe, guard_pass,
+                baseline_wr, new_wr,
+                baseline_dsr=baseline_dsr, new_dsr=new_dsr,
+            )
+            self.phase_log(
+                i, proposal, new_sharpe, guard_text, decision,
+                strategy=current_strategy, dsr=new_dsr,
+            )
 
             if decision == "keep":
                 params = new_params
                 baseline = new_sharpe
                 baseline_wr = new_wr
+                baseline_dsr = new_dsr
                 consecutive_keeps += 1
+                # Convergence: 3 consecutive keeps with raw Sharpe above the
+                # target. DSR is reported in the result for honesty but does
+                # not gate convergence (it would never trigger with growing
+                # multiple-testing penalty).
                 if guard_pass and consecutive_keeps >= 3 and new_sharpe > 1.5:
                     last_decision = "converged"
                     break
@@ -374,6 +512,7 @@ class AutoresearchLoop:
         self._save_visited()
         return {
             "final_sharpe": baseline,
+            "final_dsr": baseline_dsr,
             "final_params": params,
             "iterations": i,
             "decision": last_decision,
