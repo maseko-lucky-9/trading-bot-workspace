@@ -16,6 +16,8 @@ tenacity>=8.2             # retry policy for bridge calls
 scikit-learn>=1.4
 optuna>=3.6               # Bayesian optimisation
 stable-baselines3>=2.3    # RL (PPO) — optional
+hmmlearn>=0.3             # regime detection (HMM)
+statsmodels>=0.14         # pairs trading (ADF cointegration + rolling OLS)
 
 # Reporting / utilities
 tabulate>=0.9

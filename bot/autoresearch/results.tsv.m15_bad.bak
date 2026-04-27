@@ -1,0 +1,4 @@
+iteration	param	old_val	new_val	sharpe	dsr	max_dd	win_rate	decision	strategy	timestamp
+60	optuna	0.0	0.0	0.0000	0.0000			optuna_tpe	ema_crossover	2026-04-26T18:57:01.514967+00:00
+60	optuna	0.0	0.0	0.0000	0.0000			optuna_tpe	ema_crossover	2026-04-26T19:01:37.312460+00:00
+120	optuna	0.0	0.0	0.0000	0.3812			optuna_tpe	mean_reversion	2026-04-26T19:14:30.922580+00:00

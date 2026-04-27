@@ -18,6 +18,8 @@ PIP_SIZE = 0.0001
 PIP_VALUE_USD_PER_LOT = 10.0  # EURUSD/GBPUSD standard lot, $/pip
 LOT_STEP = 0.01
 
+_KELLY_MIN_TRADES = 30
+
 
 def _atr(df: pd.DataFrame, period: int = 14) -> float:
     return float(_atr_series(df, period).iloc[-1])
@@ -45,20 +47,91 @@ class RiskManager:
     # Position sizing                                                    #
     # ------------------------------------------------------------------ #
 
+    def kelly_multiplier(self, trade_history: list[dict]) -> float:
+        """Compute Chan-style half-Kelly multiplier from realised trade stats.
+
+        Returns ``self.kelly_fraction`` (config default) when fewer than
+        ``_KELLY_MIN_TRADES`` trades are available — not enough data to
+        estimate the distribution reliably.
+
+        Formula::
+
+            b        = avg_win / avg_loss   (payoff ratio)
+            f*       = (b * win_rate - (1 - win_rate)) / b
+            half_f   = f* * 0.5
+            result   = min(kelly_fraction, max(0.0, half_f))
+        """
+        if len(trade_history) < _KELLY_MIN_TRADES:
+            return self.kelly_fraction
+        profits = [float(t.get("profit", 0.0)) for t in trade_history]
+        wins = [p for p in profits if p > 0]
+        losses = [-p for p in profits if p < 0]
+        if not wins:
+            return 0.0  # zero or negative edge — don't amplify position size
+        if not losses:
+            return self.kelly_fraction  # can't compute payoff ratio — use config
+        win_rate = len(wins) / len(profits)
+        avg_win = sum(wins) / len(wins)
+        avg_loss = sum(losses) / len(losses)
+        if avg_loss <= 0:
+            return self.kelly_fraction
+        b = avg_win / avg_loss
+        kelly_full = (b * win_rate - (1 - win_rate)) / b
+        half_kelly = kelly_full * 0.5
+        return min(self.kelly_fraction, max(0.0, half_kelly))
+
+    @staticmethod
+    def compute_correlation_factor(
+        prices_primary: pd.Series,
+        prices_secondary: pd.Series,
+        window: int = 50,
+    ) -> float:
+        """Return |ρ| of secondary vs primary over the last ``window`` bars.
+
+        Use this to populate the ``correlation_factor`` kwarg of
+        :meth:`size_position` for the second instrument in a multi-symbol
+        portfolio.  Returns 0.0 when data is insufficient or std is zero.
+        """
+        if len(prices_primary) < window or len(prices_secondary) < window:
+            return 0.0
+        r1 = prices_primary.iloc[-window:].pct_change().dropna()
+        r2 = prices_secondary.iloc[-window:].pct_change().dropna()
+        if float(r1.std()) == 0 or float(r2.std()) == 0:
+            return 0.0
+        return abs(float(r1.corr(r2)))
+
     def size_position(
         self,
         symbol: str,
         signal,
         account: dict,
         df: pd.DataFrame,
+        trade_history: list[dict] | None = None,
+        correlation_factor: float = 0.0,
     ) -> float:
-        """Return lot size sized off ATR + 1% equity risk.
+        """Return lot size sized off ATR + 1% equity risk with Kelly + correlation.
+
+        Parameters
+        ----------
+        trade_history:
+            Closed trade dicts (each with a ``"profit"`` key).  Used to
+            compute the half-Kelly multiplier; falls back to the config
+            ``kelly_fraction`` when fewer than 30 trades are available.
+        correlation_factor:
+            Absolute Pearson correlation |ρ| of this symbol vs the primary
+            symbol in the portfolio.  Pass 0.0 for the first (or only)
+            symbol; pass the result of :meth:`compute_correlation_factor`
+            for subsequent symbols.  Lot size is scaled by ``(1 - ρ)`` so
+            highly-correlated pairs are sized down to avoid double exposure.
 
         Uses the formula::
 
             risk_$  = balance * risk_pct
             atr     = ATR(14) on df
-            lots    = risk_$ / (atr * atr_mult * pip_value_per_lot * (1/PIP_SIZE))
+            base    = risk_$ / (atr * atr_mult * pip_value_per_lot * (1/PIP_SIZE))
+            kelly   = half-Kelly multiplier (from trade_history or config default)
+            corr    = 1.0 - |correlation_factor|
+            lots    = base * kelly * corr
 
         Falls back to 0.01 lots if any input is degenerate.
         """
@@ -76,6 +149,8 @@ class RiskManager:
         if sl_distance_pips <= 0:
             return LOT_STEP
         lots = risk_dollars / (sl_distance_pips * PIP_VALUE_USD_PER_LOT)
+        lots *= self.kelly_multiplier(trade_history or [])
+        lots *= max(0.0, 1.0 - float(correlation_factor))
         lots = min(lots, self.max_lots)
         lots = max(LOT_STEP, _round_to_step(lots))
         return lots

@@ -18,6 +18,7 @@ Wave 0 changes (F4, F5):
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -29,23 +30,48 @@ from pathlib import Path
 
 import yaml
 
+try:
+    import optuna as _optuna
+    _optuna.logging.set_verbosity(_optuna.logging.WARNING)
+    _OPTUNA_AVAILABLE = True
+except ImportError:
+    _optuna = None  # type: ignore[assignment]
+    _OPTUNA_AVAILABLE = False
+
 
 _BOT_ROOT = Path(__file__).resolve().parents[1]
 _ENGINE = _BOT_ROOT / "backtest" / "engine.py"
 
 # Strategy-specific parameter search spaces: (name, step, min, max)
 _PARAMS_EMA = [
-    ("ema_fast", 1.0, 3.0, 30.0),
-    ("ema_slow", 1.0, 5.0, 200.0),
-    ("atr_multiplier", 0.25, 0.5, 5.0),
+    ("ema_fast", 1.0, 3.0, 20.0),
+    ("ema_slow", 1.0, 5.0, 30.0),   # M15 productive range; ema_slow>30 rarely trades enough
+    ("atr_multiplier", 0.25, 0.5, 4.0),
 ]
 
 _PARAMS_MR = [
     ("bb_period", 1.0, 10.0, 50.0),
     ("bb_std", 0.25, 1.0, 4.0),
     ("rsi_period", 1.0, 5.0, 50.0),
-    ("atr_multiplier", 0.25, 0.5, 5.0),
+    ("atr_multiplier", 0.25, 0.5, 4.0),
 ]
+
+_STUDY_DB_NAME = "optuna_study.db"
+_PARETO_FRONT_NAME = "pareto_front.json"
+
+
+def _optuna_study_name(base: str, db_path: Path) -> str:
+    """Scope study name to the DB file path.
+
+    Optuna 4.x maintains an in-process registry of study names across
+    different SQLite files. Without this scoping, two runs that use
+    different DB files (e.g. in separate tmp_path test directories) collide
+    with DuplicatedStudyError even when load_if_exists=True. Including an
+    8-char hash of the DB path makes each file's study name unique while
+    preserving resumability: same path → same hash → same name → reloads.
+    """
+    short = hashlib.md5(str(db_path).encode()).hexdigest()[:8]
+    return f"{base}_{short}"
 
 
 def _strategy_params(current: dict) -> list:
@@ -125,7 +151,7 @@ class AutoresearchLoop:
         self._symbols = self._configured_symbols()
         # Walk-forward + multi-symbol aggregation config (loaded from config.yaml)
         self._wf_train_pct, self._multi_symbol_mean = self._load_autoresearch_cfg()
-        self._cv_n_splits, self._cv_embargo = self._load_cv_cfg()
+        self._cv_n_splits, self._cv_embargo, self._cv_min_trades = self._load_cv_cfg()
         # Track historical Sharpes (in-process) for DSR; loaded from existing
         # results.tsv on init so the multiple-testing penalty includes prior
         # iterations across restarts.
@@ -175,21 +201,23 @@ class AutoresearchLoop:
         except Exception:
             return ["EURUSD"]
 
-    def _load_cv_cfg(self) -> tuple[int, int]:
-        """Read autoresearch.cv_n_splits and autoresearch.cv_embargo.
+    def _load_cv_cfg(self) -> tuple[int, int, int]:
+        """Read autoresearch CV settings.
 
-        Defaults: 5-fold with 24-bar embargo (1 day on H1). Set
-        ``cv_n_splits: 0`` in config to disable k-fold and fall back to the
-        old full-window verify path.
+        Returns (cv_n_splits, cv_embargo, min_trades_per_fold).
+        Defaults: 5-fold, 24-bar embargo (1 day on H1), 0 (disabled).
+        Set ``cv_n_splits: 0`` to disable k-fold (full-window verify).
+        Set ``min_trades_per_fold: N`` to reject param sets that barely trade.
         """
         try:
             cfg = yaml.safe_load(self.config_path.read_text()) or {}
             ar = (cfg.get("autoresearch") or {})
             n_splits = int(ar.get("cv_n_splits", 5))
             embargo = int(ar.get("cv_embargo", 24))
-            return max(0, n_splits), max(0, embargo)
+            min_trades = int(ar.get("min_trades_per_fold", 0))
+            return max(0, n_splits), max(0, embargo), max(0, min_trades)
         except Exception:
-            return 5, 24
+            return 5, 24, 0
 
     def _load_autoresearch_cfg(self) -> tuple[float, bool]:
         """Read autoresearch.wf_train_pct and autoresearch.multi_symbol_mean.
@@ -223,11 +251,19 @@ class AutoresearchLoop:
             yaml.safe_dump(params, f, sort_keys=False)
 
     def _run_engine(self, *flags: str, symbol: str | None = None) -> tuple[int, str, str]:
+        try:
+            cfg = yaml.safe_load(self.config_path.read_text()) or {}
+            bars = int((cfg.get("autoresearch") or {}).get("verify_bars", 5000))
+            timeframe = str((cfg.get("bot") or {}).get("timeframe", "H1"))
+        except Exception:
+            bars = 5000
+            timeframe = "H1"
         cmd = [
             sys.executable, str(_ENGINE),
             "--params", str(self.params_path),
             "--symbol", symbol or self._symbols[0],
-            "--bars", "2000",
+            "--timeframe", timeframe,
+            "--bars", str(bars),
             *flags,
         ]
         proc = subprocess.run(
@@ -311,11 +347,14 @@ class AutoresearchLoop:
         (Wave 0 default) and falls back to the legacy full-window call if
         cv_n_splits == 0."""
         if self._cv_n_splits >= 2:
-            return (
+            flags: tuple[str, ...] = (
                 "--metric", "sharpe",
                 "--cv", f"kfold:{self._cv_n_splits}",
                 "--embargo", str(self._cv_embargo),
             )
+            if self._cv_min_trades > 0:
+                flags += ("--min-trades", str(self._cv_min_trades))
+            return flags
         return ("--metric", "sharpe")
 
     def phase_verify(self) -> float:
@@ -452,6 +491,174 @@ class AutoresearchLoop:
             self._save_params(params)
 
         return params
+
+    # ------------------------------------------------------------------ #
+    # Optuna search (F8 / F9)                                            #
+    # ------------------------------------------------------------------ #
+
+    def _optuna_param_space(self, trial: object, params: dict) -> dict:
+        """Sample a full parameter set from the strategy's search space."""
+        space = _strategy_params(params)
+        new_params = dict(params)
+        for name, step, lo, hi in space:
+            n_steps = max(1, int(round((hi - lo) / step)))
+            idx = trial.suggest_int(name + "_idx", 0, n_steps)  # type: ignore[attr-defined]
+            new_params[name] = lo + idx * step
+        return new_params
+
+    def _optuna_objective(
+        self,
+        trial: object,
+        params: dict,
+        multi_objective: bool,
+    ) -> "float | tuple[float, float, float]":
+        """Evaluate one Optuna trial: sample params → run engine → return metric(s).
+
+        For single-objective (TPE): returns raw k-fold Sharpe so TPE can learn
+        the response surface without the per-trial Gumbel penalty distorting
+        comparisons (the penalty grows every trial, making the warm-start seed
+        always "win" on DSR regardless of actual Sharpe). DSR is computed once
+        over the full trial set in ``run_optuna`` and reported as a summary gate.
+
+        For multi-objective (NSGA-II): returns (Sharpe, max_dd, win_rate) since
+        NSGA-II needs stable per-trial metrics to build the Pareto front.
+        """
+        candidate = self._optuna_param_space(trial, params)
+        self._save_params(candidate)
+        sharpe = self.phase_verify()
+        self._sharpe_history.append(sharpe)
+        if multi_objective:
+            _, _guard_text, win_rate, max_dd = self.phase_guard()
+            return sharpe, max_dd, win_rate   # directions: maximize, minimize, maximize
+        return sharpe
+
+    def run_optuna(self, n_trials: int = 100, sampler: str = "tpe") -> dict:
+        """Search parameter space with Optuna (F9 = TPE, F8 = NSGA-II).
+
+        Parameters
+        ----------
+        n_trials : int
+            Number of trials to evaluate.
+        sampler : {"tpe", "nsga2"}
+            "tpe"  — single-objective Bayesian optimisation (maximise DSR).
+            "nsga2"— multi-objective NSGA-II: (DSR↑, max_dd↓, win_rate↑).
+                     Pareto front written to ``autoresearch/pareto_front.json``.
+
+        The Optuna study is persisted as a SQLite DB so runs are resumable.
+        The study name is scoped to the DB file path (see ``_optuna_study_name``)
+        to prevent ``DuplicatedStudyError`` when multiple test runs use
+        different temporary directories.
+        """
+        if not _OPTUNA_AVAILABLE:
+            raise ImportError("optuna is required for run_optuna()")
+
+        params = self.phase_review()
+        self._save_params(params)
+        params = self.phase_compare_strategies(params)
+
+        multi_objective = (sampler == "nsga2")
+        study_path = self.results_path.parent / _STUDY_DB_NAME
+        storage = f"sqlite:///{study_path}"
+
+        if multi_objective:
+            opt_sampler = _optuna.samplers.NSGAIISampler()
+            study = _optuna.create_study(
+                study_name=_optuna_study_name("autoresearch_nsga2", study_path),
+                directions=["maximize", "minimize", "maximize"],
+                sampler=opt_sampler,
+                storage=storage,
+                load_if_exists=True,
+            )
+        else:
+            opt_sampler = _optuna.samplers.TPESampler()
+            study = _optuna.create_study(
+                study_name=_optuna_study_name("autoresearch_tpe", study_path),
+                direction="maximize",
+                sampler=opt_sampler,
+                storage=storage,
+                load_if_exists=True,
+            )
+
+        def _obj(trial: object) -> "float | tuple":
+            return self._optuna_objective(trial, params, multi_objective)
+
+        # Warm-start: enqueue the current seed params as trial 0 so the TPE
+        # surrogate model has at least one real anchor before random sampling.
+        # Without this, early random trials are often blocked (Sharpe=0 via
+        # min_trades guard) and the surrogate never learns the good region.
+        seed_trial: dict[str, int] = {}
+        for name, step, lo, hi in _strategy_params(params):
+            n_steps = max(1, int(round((hi - lo) / step)))
+            idx = int(round((float(params.get(name, lo)) - lo) / step))
+            seed_trial[name + "_idx"] = max(0, min(n_steps, idx))
+        if not study.trials:
+            study.enqueue_trial(seed_trial)
+
+        study.optimize(_obj, n_trials=n_trials, show_progress_bar=False)
+
+        # ── Pareto front + best params ──────────────────────────────────── #
+        if multi_objective:
+            pareto_path = self.results_path.parent / _PARETO_FRONT_NAME
+            pareto = [
+                {"params": t.params, "values": list(t.values)}
+                for t in study.best_trials
+            ]
+            try:
+                pareto_path.write_text(json.dumps(pareto, indent=2))
+            except Exception:
+                pass
+            best_trial = (
+                max(study.best_trials, key=lambda t: t.values[0])
+                if study.best_trials else None
+            )
+            best_trial_params = best_trial.params if best_trial else {}
+            best_sharpe_raw = best_trial.values[0] if best_trial else float("-inf")
+            active_history = [s for s in self._sharpe_history if s != 0.0]
+            final_dsr = deflated_sharpe(
+                best_sharpe_raw,
+                active_history if len(active_history) >= 2 else self._sharpe_history,
+            )
+        else:
+            best_trial = study.best_trial
+            best_trial_params = best_trial.params
+            # Compute DSR post-run over the full active Sharpe history so the
+            # Gumbel penalty accounts for all trials at once rather than
+            # distorting per-trial comparisons inside the objective.
+            best_sharpe_raw = float(study.best_value)
+            active_history = [s for s in self._sharpe_history if s != 0.0]
+            final_dsr = deflated_sharpe(
+                best_sharpe_raw,
+                active_history if len(active_history) >= 2 else self._sharpe_history,
+            )
+
+        # Reconstruct full params dict from sampled index-params
+        if best_trial_params:
+            best_params = dict(params)
+            for name, step, lo, hi in _strategy_params(params):
+                key = name + "_idx"
+                if key in best_trial_params:
+                    best_params[name] = lo + best_trial_params[key] * step
+            self._save_params(best_params)
+        else:
+            best_params = params
+
+        # Write summary row to results.tsv (reuse existing schema)
+        n_total = len(study.trials)
+        dummy_proposal = {"param": "optuna", "old": 0.0, "new": 0.0}
+        self.phase_log(
+            n_total, dummy_proposal, best_sharpe_raw, "",
+            f"optuna_{sampler}", strategy=params.get("strategy", ""), dsr=final_dsr,
+        )
+
+        return {
+            "final_sharpe": best_sharpe_raw,
+            "final_dsr": final_dsr,
+            "final_params": best_params,
+            "iterations": n_total,
+            "decision": f"optuna_{sampler}",
+            "results_path": str(self.results_path),
+            "study_path": str(study_path),
+        }
 
     # ------------------------------------------------------------------ #
     # Driver                                                             #

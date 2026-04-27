@@ -91,9 +91,9 @@ def test_backfill_one_fetches_gap_when_under_target(tmp_path):
     assert result["cached_before"] == 200
     assert result["cached_after"] >= 5000
     bridge.get_history.assert_called_once()
-    # pagination issues PAGE_SIZE-sized requests; first call uses offset=0
+    # bulk request: first call asks for the full target count at offset=0
     _, kwargs = bridge.get_history.call_args
-    assert kwargs["bars"] == HistoricalDataClient._PAGE_SIZE
+    assert kwargs["bars"] == 5000
     assert kwargs["offset"] == 0
 
 

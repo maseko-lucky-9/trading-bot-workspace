@@ -50,10 +50,14 @@ if str(_BOT_ROOT) not in sys.path:
 
 from core.bridge.http_client import MT5BridgeClient  # noqa: E402
 from core.data.history import HistoryFetcher  # noqa: E402
+from core.filters.news import NewsBlackout  # noqa: E402
+from core.filters.session import SessionFilter  # noqa: E402
+from core.regime.detector import RegimeDetector  # noqa: E402
 from core.risk.manager import RiskManager, LOT_STEP  # noqa: E402
 from core.strategy.base import Signal  # noqa: E402
 from core.strategy.ema_crossover import EMACrossover  # noqa: E402
 from core.strategy.mean_reversion import BollingerBandMeanReversion  # noqa: E402
+from core.strategy.meta_labeller import MetaLabeller  # noqa: E402
 
 PIP_SIZE = 0.0001
 PIP_SIZE_JPY = 0.01
@@ -109,7 +113,8 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _load_params(args, bot_root: Path) -> dict:
-    base = _load_yaml(bot_root / "config.yaml")
+    config_path = Path(args.config) if getattr(args, "config", None) else bot_root / "config.yaml"
+    base = _load_yaml(config_path)
     overlay_path = Path(args.params) if args.params else None
     overlay = _load_yaml(overlay_path) if overlay_path else {}
     merged: dict[str, Any] = {}
@@ -405,6 +410,8 @@ class _Position:
     volume: float
     entry_idx: int
     entry_time: Any
+    meta_features: Any = None   # np.ndarray captured at entry for MetaLabeller
+    meta_prob: float = 0.0      # P(profit) from MetaLabeller at entry; 0 if unused
 
 
 @dataclass
@@ -443,6 +450,7 @@ def _close_position(
         "entry_time": pos.entry_time,
         "exit_time": exit_time,
         "reason": reason,
+        "meta_prob": pos.meta_prob,
     })
 
 
@@ -473,6 +481,26 @@ def _run_event_loop(
     )
     costs = SymbolCosts.from_config(config, symbol)
     pip_size = _pip_size_for(symbol)
+    session_filter = SessionFilter.from_config(config)
+    news_filter = NewsBlackout.from_config(config, bot_root=_BOT_ROOT)
+
+    # Regime detection — pre-compute for full df (deterministic for vol method)
+    regime_cfg = (config.get("filters") or {}).get("regime") or {}
+    regime_enabled = bool(regime_cfg.get("enabled", True))
+    strategy_regime_map: dict = regime_cfg.get("strategy_regime_map") or {}
+    allowed_regimes: list[int] | None = None
+    if regime_enabled and strat.name in strategy_regime_map:
+        allowed_regimes = [int(r) for r in strategy_regime_map[strat.name]]
+    regimes: pd.Series | None = None
+    if regime_enabled:
+        regimes = RegimeDetector.from_config(config).detect(df)
+
+    # Meta-labeller — optional probability-of-profit wrapper
+    ml_cfg = (config.get("filters") or {}).get("meta_labeller") or \
+             config.get("meta_labeller") or {}
+    ml_enabled = bool(ml_cfg.get("enabled", False))
+    if ml_enabled:
+        strat = MetaLabeller.from_config(config, base_strategy=strat)
 
     state = _SimState(
         equity=starting_equity,
@@ -483,10 +511,11 @@ def _run_event_loop(
     # Minimum bars before strategy can produce a signal (enough for indicators
     # to warm up). EMACrossover needs slow+atr_period+2; MR needs bb+atr+2.
     warmup = 50
-    if isinstance(strat, EMACrossover):
-        warmup = max(strat.slow, strat.atr_period) + 5
-    elif isinstance(strat, BollingerBandMeanReversion):
-        warmup = max(strat.bb_period, strat.rsi_period, strat.atr_period) + 5
+    base_strat = strat.base_strategy if isinstance(strat, MetaLabeller) else strat
+    if isinstance(base_strat, EMACrossover):
+        warmup = max(base_strat.slow, base_strat.atr_period) + 5
+    elif isinstance(base_strat, BollingerBandMeanReversion):
+        warmup = max(base_strat.bb_period, base_strat.rsi_period, base_strat.atr_period) + 5
 
     n = len(df)
     if n < warmup + 2:
@@ -539,6 +568,9 @@ def _run_event_loop(
                     is_stop=is_stop,
                 )
                 state.positions.remove(pos)
+                # Feed outcome to MetaLabeller so it can retrain incrementally
+                if isinstance(strat, MetaLabeller) and pos.meta_features is not None:
+                    strat.record_outcome(pos.meta_features, state.closed[-1]["profit"])
 
         # 3. Circuit-breaker check (F18)
         account = {"balance": state.equity, "equity": state.equity}
@@ -553,26 +585,51 @@ def _run_event_loop(
         window = df.iloc[: i + 1]
         signal = strat.generate_signal(window)
 
-        # 5. Entry — at next bar's open + half-spread for direction
+        # Annotate signal with current regime (available for callers and logs)
+        current_regime: int | None = int(regimes.iloc[i]) if regimes is not None else None
+        if current_regime is not None:
+            signal.meta["regime"] = current_regime
+
+        # 5. Entry — at next bar's open + half-spread for direction.
+        # Session, news, and regime filters gate new entries only; exits (SL/TP)
+        # processed in step 2 are never blocked.
+        regime_ok = (
+            allowed_regimes is None
+            or current_regime is None
+            or current_regime in allowed_regimes
+        )
         if (
             ok
             and not state.positions
             and signal.action in ("BUY", "SELL")
             and signal.meta.get("sl") is not None
             and signal.meta.get("tp") is not None
+            and session_filter.is_active(bar_time)
+            and news_filter.is_active(bar_time, symbol)
+            and regime_ok
         ):
             half_spread = (costs.spread_pips * pip_size) / 2.0
             entry_price = (
                 next_open + half_spread if signal.action == "BUY"
                 else next_open - half_spread
             )
-            volume = risk.size_position(symbol, signal, account, window)
+            volume = risk.size_position(
+                symbol, signal, account, window,
+                trade_history=state.closed,
+            )
             adj = risk.get_position_adjustment(state.equity, state.peak_equity)
             volume = max(0.0, volume * adj)
             # Round to LOT_STEP
             if volume > 0:
                 volume = round(round(volume / LOT_STEP) * LOT_STEP, 2)
             if volume >= LOT_STEP:
+                # Capture MetaLabeller features + probability for this entry
+                ml_features = (
+                    strat._last_features.copy()
+                    if isinstance(strat, MetaLabeller) and strat._last_features is not None
+                    else None
+                )
+                ml_prob = float(signal.strength) if isinstance(strat, MetaLabeller) else 0.0
                 state.positions.append(_Position(
                     side=signal.action,
                     entry=entry_price,
@@ -581,6 +638,8 @@ def _run_event_loop(
                     volume=volume,
                     entry_idx=i + 1,
                     entry_time=next_bar["time"] if "time" in df.columns else i + 1,
+                    meta_features=ml_features,
+                    meta_prob=ml_prob,
                 ))
 
         # 6. Mark-to-market and update peak
@@ -682,6 +741,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Allow running on synthetic random-walk data (for development only).",
     )
+    parser.add_argument(
+        "--min-trades",
+        type=int,
+        default=0,
+        help="Minimum average trades per CV fold; param sets below this return "
+             "Sharpe=0 (ignored when 0 or when --cv is not used).",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Path to config.yaml override (default: bot root config.yaml).",
+    )
     args = parser.parse_args(argv)
 
     bot_root = _BOT_ROOT
@@ -732,7 +803,8 @@ def main(argv: list[str] | None = None) -> int:
     if cv and cv[0] == "kfold":
         n_splits = cv[1]
         try:
-            result = _run_cv(df, params, cfg, args.symbol, n_splits, args.embargo)
+            result = _run_cv(df, params, cfg, args.symbol, n_splits, args.embargo,
+                             min_trades_per_fold=args.min_trades)
         except Exception as exc:
             print(f"ERROR simulating CV: {exc}", file=sys.stderr)
             return 2
@@ -793,8 +865,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_cv(df: pd.DataFrame, params: dict, config: dict,
-            symbol: str, n_splits: int, embargo: int) -> dict:
-    """Run purged k-fold CV; aggregate per-fold Sharpe by simple mean."""
+            symbol: str, n_splits: int, embargo: int,
+            min_trades_per_fold: int = 0) -> dict:
+    """Run purged k-fold CV; aggregate per-fold Sharpe by simple mean.
+
+    When ``min_trades_per_fold > 0`` and the average trade count per test fold
+    falls below this threshold, Sharpe is forced to 0 and a WARN line is
+    written to stderr.  This prevents noise-inflated Sharpes from parameter
+    sets that barely trade.
+    """
     splits = _purged_kfold_indexes(len(df), n_splits, embargo)
     fold_results: list[dict] = []
     for _train_idx, test_idx in splits:
@@ -805,6 +884,25 @@ def _run_cv(df: pd.DataFrame, params: dict, config: dict,
     if not fold_results:
         return _compute_stats(trades=[], equity_curve=[], n_bars=len(df))
 
+    total_trades = int(sum(r["trades"] for r in fold_results))
+    avg_trades = total_trades / len(fold_results)
+    if min_trades_per_fold > 0 and avg_trades < min_trades_per_fold:
+        print(
+            f"WARN min_trades_not_met avg_per_fold={avg_trades:.1f} "
+            f"< {min_trades_per_fold}",
+            file=sys.stderr,
+        )
+        return {
+            "sharpe": 0.0,
+            "sortino": 0.0,
+            "calmar": 0.0,
+            "win_rate": 0.0,
+            "max_drawdown": 0.0,
+            "trades": total_trades,
+            "bars": int(len(df)),
+            "n_folds": len(fold_results),
+        }
+
     sharpes = [r["sharpe"] for r in fold_results]
     win_rates = [r["win_rate"] for r in fold_results]
     max_dds = [r["max_drawdown"] for r in fold_results]
@@ -814,7 +912,7 @@ def _run_cv(df: pd.DataFrame, params: dict, config: dict,
         "calmar": float(np.mean([r.get("calmar", 0.0) for r in fold_results])),
         "win_rate": float(np.mean(win_rates)) if win_rates else 0.0,
         "max_drawdown": float(np.max(max_dds)) if max_dds else 0.0,
-        "trades": int(sum(r["trades"] for r in fold_results)),
+        "trades": total_trades,
         "bars": int(len(df)),
         "n_folds": len(fold_results),
     }

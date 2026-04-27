@@ -16,7 +16,10 @@ _BOT_ROOT = Path(__file__).resolve().parents[1]
 _ENGINE = _BOT_ROOT / "backtest" / "engine.py"
 
 sys.path.insert(0, str(_BOT_ROOT))
-from backtest.engine import _compute_stats, _simulate_ema, _simulate_mean_reversion, _run_simulation  # noqa: E402
+from backtest.engine import (  # noqa: E402
+    _compute_stats, _simulate_ema, _simulate_mean_reversion, _run_simulation,
+    _run_cv, _purged_kfold_indexes,
+)
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
@@ -386,3 +389,136 @@ def test_cli_wf_train_pct_actually_reduces_simulated_bars(tmp_path):
     if m_bars is not None:
         # 1000 bars * 0.1 holdout = ~100 bars
         assert int(m_bars.group(1)) <= 200, proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# min_trades_per_fold guard (Option A)
+# ---------------------------------------------------------------------------
+
+def _make_df(n: int = 600, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    prices = 1.10 + np.cumsum(rng.normal(0, 0.0008, n))
+    prices = np.maximum(prices, 0.5)
+    return pd.DataFrame({
+        "time": pd.date_range("2025-01-01", periods=n, freq="h", tz="UTC"),
+        "open": prices, "high": prices + 0.0005,
+        "low": prices - 0.0005, "close": prices, "volume": 1000,
+    })
+
+
+def test_run_cv_min_trades_not_met_returns_sharpe_zero():
+    """When avg trades/fold < min_trades_per_fold, Sharpe is forced to 0."""
+    df = _make_df(600)
+    params = {"strategy": "ema_crossover", "ema_fast": 9, "ema_slow": 21, "atr_multiplier": 1.5}
+    result = _run_cv(df, params, {}, "EURUSD", n_splits=3, embargo=5,
+                     min_trades_per_fold=9999)
+    assert result["sharpe"] == 0.0
+    assert result["trades"] >= 0
+
+
+def test_run_cv_min_trades_zero_disables_guard():
+    """min_trades_per_fold=0 (default) disables the guard entirely."""
+    df = _make_df(600)
+    params = {"strategy": "ema_crossover", "ema_fast": 9, "ema_slow": 21, "atr_multiplier": 1.5}
+    r_guarded = _run_cv(df, params, {}, "EURUSD", n_splits=3, embargo=5,
+                        min_trades_per_fold=9999)
+    r_unguarded = _run_cv(df, params, {}, "EURUSD", n_splits=3, embargo=5,
+                          min_trades_per_fold=0)
+    # Guarded forces 0; unguarded may differ
+    assert r_guarded["sharpe"] == 0.0
+    assert isinstance(r_unguarded["sharpe"], float)
+
+
+def test_run_cv_min_trades_met_allows_real_sharpe():
+    """When trade count exceeds the threshold, the real Sharpe is returned."""
+    df = _make_df(600)
+    params = {"strategy": "ema_crossover", "ema_fast": 3, "ema_slow": 9, "atr_multiplier": 1.5}
+    result = _run_cv(df, params, {}, "EURUSD", n_splits=3, embargo=5,
+                     min_trades_per_fold=1)
+    assert math.isfinite(result["sharpe"])
+    assert result["trades"] > 0
+
+
+def test_run_cv_trades_field_populated_even_when_blocked():
+    """trades count is always returned, even when Sharpe is blocked."""
+    df = _make_df(600)
+    params = {"strategy": "ema_crossover", "ema_fast": 9, "ema_slow": 21, "atr_multiplier": 1.5}
+    result = _run_cv(df, params, {}, "EURUSD", n_splits=3, embargo=5,
+                     min_trades_per_fold=9999)
+    assert "trades" in result
+    assert isinstance(result["trades"], int)
+
+
+def test_cli_min_trades_flag_blocks_sparse_params():
+    """--min-trades N blocks param sets with few trades per fold."""
+    proc = _run(
+        "--cv", "kfold:3", "--embargo", "5",
+        "--bars", "600",
+        "--allow-synthetic",
+        "--min-trades", "9999",   # impossibly high — should force Sharpe=0
+    )
+    assert proc.returncode == 0
+    m = re.search(r"^SHARPE\s+(-?[0-9.]+)", proc.stdout, flags=re.MULTILINE)
+    assert m is not None
+    assert float(m.group(1)) == 0.0
+
+
+def test_autoresearch_loop_passes_min_trades_to_engine(tmp_path):
+    """AutoresearchLoop._verify_flags includes --min-trades when configured."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "bot:\n  instruments: [EURUSD]\n  timeframe: H1\n"
+        "autoresearch:\n  cv_n_splits: 3\n  cv_embargo: 24\n"
+        "  min_trades_per_fold: 42\n"
+    )
+    import sys; sys.path.insert(0, str(_BOT_ROOT))
+    from autoresearch.loop import AutoresearchLoop
+    loop = AutoresearchLoop(config_path=cfg)
+    flags = loop._verify_flags()
+    assert "--min-trades" in flags
+    idx = list(flags).index("--min-trades")
+    assert flags[idx + 1] == "42"
+
+
+def test_autoresearch_loop_omits_min_trades_when_zero(tmp_path):
+    """--min-trades is omitted from flags when min_trades_per_fold=0."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "bot:\n  instruments: [EURUSD]\n  timeframe: H1\n"
+        "autoresearch:\n  cv_n_splits: 3\n  cv_embargo: 24\n"
+        "  min_trades_per_fold: 0\n"
+    )
+    from autoresearch.loop import AutoresearchLoop
+    loop = AutoresearchLoop(config_path=cfg)
+    flags = loop._verify_flags()
+    assert "--min-trades" not in flags
+
+
+def test_autoresearch_loop_passes_timeframe_to_engine(tmp_path, monkeypatch):
+    """_run_engine must pass --timeframe from bot.timeframe config."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "bot:\n  instruments: [GBPUSD]\n  timeframe: M15\n"
+        "autoresearch:\n  cv_n_splits: 3\n  cv_embargo: 96\n"
+        "  min_trades_per_fold: 0\n  verify_bars: 100\n"
+    )
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text("strategy: ema_crossover\nema_fast: 3\nema_slow: 9\natr_multiplier: 1.5\nrisk_pct: 0.01\n")
+    captured = {}
+
+    import subprocess as sp
+    original_run = sp.run
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        import types
+        r = types.SimpleNamespace(returncode=0, stdout="SHARPE 1.0\n", stderr="")
+        return r
+
+    monkeypatch.setattr(sp, "run", fake_run)
+    from autoresearch.loop import AutoresearchLoop
+    loop = AutoresearchLoop(config_path=cfg, params_path=params_file)
+    loop._run_engine("--metric", "sharpe", symbol="GBPUSD")
+    assert "--timeframe" in captured["cmd"]
+    tf_idx = captured["cmd"].index("--timeframe")
+    assert captured["cmd"][tf_idx + 1] == "M15"

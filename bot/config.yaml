@@ -5,8 +5,8 @@ bridge:
 bot:
   mode: "live"            # paper | live  (NEVER change to live without --confirm-live flag)
   instruments:
-    - "USDJPY"
-  timeframe: "H1"
+    - "GBPUSD"
+  timeframe: "M15"
   log_level: "INFO"
 
 risk:
@@ -33,7 +33,34 @@ autoresearch:
   cooldown_seconds: 3600     # wait this long before restarting after a run completes
   wf_train_pct: 0.8          # walk-forward hold-out fraction for guard calls (0.0 disables)
   multi_symbol_mean: true    # aggregate verify sharpe as mean across symbols
+  cv_embargo: 96             # 1 trading day on M15 (96 bars); use 24 for H1
+  min_trades_per_fold: 20    # reject param sets averaging < 20 trades per CV fold
+  verify_bars: 5000          # bars passed to engine on each verify call
 
 monitoring:
   poll_interval_s: 5            # PositionMonitor polling interval
   log_path: "logs/positions.jsonl"
+
+filters:
+  sessions:
+    enabled: true
+    allowed:
+      - "london"       # 07:00–16:00 UTC
+      - "new_york"     # 12:00–21:00 UTC
+  news_blackout:
+    enabled: false               # set true once calendar_path is populated
+    buffer_minutes: 30
+    calendar_path: "data/news_calendar.csv"
+  regime:
+    enabled: true
+    method: "vol"      # "vol" (fast, no deps) or "hmm" (requires hmmlearn)
+    window: 20         # rolling window for vol calculation
+    strategy_regime_map:
+      ema_crossover: [0]    # only trade in TREND regime (0)
+      mean_reversion: [1]   # only trade in RANGE regime (1)
+  meta_labeller:
+    enabled: false              # start disabled; enable after ~30 closed trades warm-up
+    threshold: 0.55             # minimum P(profit) to pass a signal through
+    min_train_trades: 20        # labelled trades needed before model activates
+    retrain_every: 10           # retrain model every N new closed trades
+    use_gradient_boost: false   # false = logistic regression; true = GBT (slower)

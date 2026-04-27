@@ -108,6 +108,42 @@ class PerformanceTracker:
             return 0.0 if gross_profit == 0 else float("inf")
         return gross_profit / gross_loss
 
+    def payoff_ratio(self) -> float:
+        """Average win / average loss (both expressed as positive values)."""
+        if self.trade_count < 2:
+            return 0.0
+        profits = self._profits()
+        wins = profits[profits > 0]
+        losses = profits[profits < 0]
+        if len(wins) == 0 or len(losses) == 0:
+            return 0.0
+        return float(wins.mean() / (-losses.mean()))
+
+    def expectancy(self) -> float:
+        """Expected profit per trade: win_rate * avg_win - loss_rate * avg_loss."""
+        if self.trade_count < 2:
+            return 0.0
+        profits = self._profits()
+        wins = profits[profits > 0]
+        losses = profits[profits < 0]
+        win_rate = len(wins) / len(profits)
+        avg_win = float(wins.mean()) if len(wins) > 0 else 0.0
+        avg_loss = float(-losses.mean()) if len(losses) > 0 else 0.0
+        return win_rate * avg_win - (1.0 - win_rate) * avg_loss
+
+    def avg_r_multiple(self) -> float:
+        """Expectancy normalised by average loss — expectancy per dollar risked."""
+        if self.trade_count < 2:
+            return 0.0
+        profits = self._profits()
+        losses = profits[profits < 0]
+        if len(losses) == 0:
+            return 0.0
+        avg_loss = float(-losses.mean())
+        if avg_loss <= 0:
+            return 0.0
+        return self.expectancy() / avg_loss
+
     def summary(self) -> dict:
         return {
             "trade_count": self.trade_count,
@@ -115,6 +151,9 @@ class PerformanceTracker:
             "max_drawdown": self.max_drawdown(),
             "win_rate": self.win_rate(),
             "profit_factor": self.profit_factor(),
+            "payoff_ratio": self.payoff_ratio(),
+            "expectancy": self.expectancy(),
+            "avg_r_multiple": self.avg_r_multiple(),
         }
 
     # ------------------------------------------------------------------ #

@@ -147,17 +147,19 @@ def test_fetch_pagination_makes_multiple_page_requests():
 
 
 def test_fetch_pagination_stops_on_partial_page():
-    """A page shorter than PAGE_SIZE signals end of history."""
+    """Bulk request returns fewer bars than asked → stop (no pagination retry)."""
     bridge = MagicMock()
     bridge.get_bar_count.return_value = 300
-    # Asking for 1000 but bridge only has 300
+    # Asking for 1000 but bridge only has 300 — bulk call returns 300
     bridge.get_history.return_value = _bridge_rows(1_700_000_000, 300)
     client = HistoricalDataClient(bridge=bridge)
 
     df = client.fetch(symbol="EURUSD", bars=1000)
 
-    # Only one page was issued (300 < PAGE_SIZE=500 → partial → stop)
-    assert bridge.get_history.call_count == 1
+    # Bulk call issued once for bars=1000, bridge returned 300 → pagination
+    # fallback tries next page (offset=300) and gets empty → stops.
+    # Total: 2 calls (bulk + one paged attempt that returns []).
+    assert bridge.get_history.call_count == 2
     assert len(df) == 300
 
 

@@ -88,19 +88,20 @@ class HistoricalDataClient:
         if auto_fetch:
             self._ensure_bars(symbol, timeframe, bars)
 
-        # Phase B — paginate backward through accumulated bars
+        # Phase B — fetch bars from bridge.
+        # Strategy: try one bulk request first (offset=0). MT5's CopyRates
+        # returns the full window reliably in a single call; offset-based
+        # pagination is unreliable at deep positions (short pages at the
+        # edge of broker cache). Only fall back to paged walk if the bulk
+        # request returns a short result.
         frames: list[pd.DataFrame] = []
         offset = 0
         collected = 0
 
-        while collected < bars:
-            need = min(self._PAGE_SIZE, bars - collected)
+        def _get(n: int, off: int) -> list:
             try:
-                rows = self.bridge.get_history(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    bars=need,
-                    offset=offset,
+                return self.bridge.get_history(
+                    symbol=symbol, timeframe=timeframe, bars=n, offset=off,
                 )
             except BridgeDisconnected as e:
                 raise BridgeUnavailableError(
@@ -111,14 +112,25 @@ class HistoricalDataClient:
                     f"unexpected bridge failure for {symbol} {timeframe}: {e}"
                 ) from e
 
-            if not rows:
-                break  # end of available history
+        # Bulk attempt
+        bulk_rows = _get(bars, 0)
+        if bulk_rows:
+            frames.append(pd.DataFrame(bulk_rows, columns=CANONICAL_COLUMNS))
+            collected = len(bulk_rows)
+            offset = collected
 
-            frames.append(pd.DataFrame(rows, columns=CANONICAL_COLUMNS))
-            collected += len(rows)
-            offset += len(rows)
-            if len(rows) < need:
-                break  # partial page — no more history beyond this point
+        # Pagination fallback: only if bulk request returned fewer than requested
+        if collected < bars:
+            while collected < bars:
+                need = min(self._PAGE_SIZE, bars - collected)
+                rows = _get(need, offset)
+                if not rows:
+                    break
+                frames.append(pd.DataFrame(rows, columns=CANONICAL_COLUMNS))
+                collected += len(rows)
+                offset += len(rows)
+                if len(rows) < need:
+                    break
 
         if not frames:
             raise BridgeUnavailableError(
