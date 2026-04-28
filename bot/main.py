@@ -72,6 +72,36 @@ def _load_strategy(params: dict) -> Strategy:
     return EMACrossover(fast=fast, slow=slow)
 
 
+def _ping_with_backoff(bridge: MT5BridgeClient, max_attempts: int = 5, base_delay: float = 1.0) -> bool:
+    """Retry bridge.ping() with exponential backoff. Returns True on success.
+
+    Sequence: 1s, 2s, 4s, 8s, 16s — total ~31s before giving up.
+    Logs each retry to stderr so launchd captures the trail in paper.log.
+    """
+    delay = base_delay
+    for attempt in range(1, max_attempts + 1):
+        try:
+            bridge.ping()
+            if attempt > 1:
+                print(f"bridge ping ok after {attempt} attempts", file=sys.stderr)
+            return True
+        except Exception as exc:
+            if attempt == max_attempts:
+                print(
+                    f"bridge ping failed after {max_attempts} attempts: {exc}",
+                    file=sys.stderr,
+                )
+                return False
+            print(
+                f"bridge ping attempt {attempt}/{max_attempts} failed ({exc}); "
+                f"retrying in {delay:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+            delay *= 2
+    return False
+
+
 def _start_autoresearch(loop: AutoresearchLoop, iterations: int) -> threading.Thread:
     t = threading.Thread(
         target=loop.run, kwargs={"max_iterations": iterations}, daemon=True
@@ -112,19 +142,22 @@ def main(argv: list[str] | None = None) -> int:
     ar_cooldown = float(ar_cfg.get("cooldown_seconds", 3600))
 
     bridge = MT5BridgeClient()
-    bridge.ping()
+    if not _ping_with_backoff(bridge):
+        # Exit non-zero so launchd KeepAlive respawns us after ThrottleInterval.
+        # By then the bridge may have come back; if not, we'll loop again.
+        return 3
     history = HistoryFetcher(bridge)
     risk = RiskManager(cfg)
     tracker = PerformanceTracker()
     checkpoints = CheckpointManager()
 
-    autoresearch_loop: AutoresearchLoop | None = AutoresearchLoop() if ar_enabled else None
+    autoresearch_loop: AutoresearchLoop = AutoresearchLoop()
     autoresearch_thread: threading.Thread | None = None
     autoresearch_last_run: float = 0.0
 
-    strategy = _load_strategy(autoresearch_loop._load_params() if autoresearch_loop else {})
+    strategy = _load_strategy(autoresearch_loop._load_params())
 
-    if ar_enabled and autoresearch_loop is not None:
+    if ar_enabled:
         autoresearch_thread = _start_autoresearch(autoresearch_loop, ar_iterations)
         autoresearch_last_run = time.time()
 
@@ -165,55 +198,87 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         while _running:
-            # Account and circuit breaker check once per iteration
+            # Account and circuit breaker check once per iteration.
+            # We MUST distinguish fresh account data (real equity from the bridge)
+            # from the fallback default — running circuit breakers on the
+            # 10_000 fallback after peak_equity has been set from real account
+            # data produces a false-positive 90% drawdown halt that latches
+            # state.peak_equity at the wrong level forever.
             account = {"balance": 10_000.0, "equity": 10_000.0}
+            account_fresh = False
             try:
                 live_acct = bridge.get_account()
-                if live_acct:
+                if live_acct and "equity" in live_acct:
                     account.update(live_acct)
+                    account_fresh = True
             except Exception:
                 pass
 
-            equity = float(account.get("equity", account.get("balance", 10_000.0)))
-            if state.peak_equity == 0.0 or equity > state.peak_equity:
-                state.peak_equity = equity
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            if state.day_start_equity == 0.0 or state.day_start_date != today:
-                state.day_start_equity = equity
-                state.day_start_date = today
+            if account_fresh:
+                equity = float(account.get("equity", account.get("balance", 10_000.0)))
+                if state.peak_equity == 0.0 or equity > state.peak_equity:
+                    state.peak_equity = equity
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if state.day_start_equity == 0.0 or state.day_start_date != today:
+                    state.day_start_equity = equity
+                    state.day_start_date = today
 
-            ok, reason = risk.check_circuit_breakers(
-                account,
-                om.get_positions(),
-                recent_closed=om.get_closed(),
-                peak_equity=state.peak_equity,
-                day_start_equity=state.day_start_equity,
-            )
+                ok, reason = risk.check_circuit_breakers(
+                    account,
+                    om.get_positions(),
+                    recent_closed=om.get_closed(),
+                    peak_equity=state.peak_equity,
+                    day_start_equity=state.day_start_equity,
+                )
+            else:
+                # Bridge transient: skip the circuit-breaker pass rather than
+                # halt on stale data. Next iteration will re-check.
+                ok, reason = True, "skipped (bridge transient)"
+                print("skipping circuit-breaker check: stale account data", file=sys.stderr)
+
             if not ok:
-                print(f"halted: {reason}")
+                # DIAGNOSTIC: surface the values driving the halt for offline review.
+                print(
+                    f"halted: {reason} "
+                    f"[equity={float(account.get('equity', 0.0)):.2f} "
+                    f"peak={state.peak_equity:.2f} "
+                    f"day0={state.day_start_equity:.2f} "
+                    f"fresh={account_fresh}]"
+                )
             else:
                 for sym in symbols:
+                    # Outer try wraps the entire per-symbol pipeline so a single
+                    # bridge transient (history fetch, broker call, etc.) becomes
+                    # a no-op iteration instead of crashing the bot. KeepAlive
+                    # respawns are reserved for genuinely fatal errors.
                     try:
-                        bridge.get_tick(sym)
+                        try:
+                            bridge.get_tick(sym)
+                        except Exception as exc:
+                            print(f"bridge error {sym}: {exc}", file=sys.stderr)
+                            continue
+
+                        df = history.fetch(symbol=sym, timeframe=timeframe, bars=200)
+                        sig = strategy.generate_signal(df)
+
+                        if sig.action in ("BUY", "SELL"):
+                            volume = risk.size_position(sym, sig, account, df)
+                            meta = sig.meta or {}
+                            placed = (
+                                om.buy(sym, volume, sl=meta.get("sl", 0.0), tp=meta.get("tp", 0.0))
+                                if sig.action == "BUY"
+                                else om.sell(sym, volume, sl=meta.get("sl", 0.0), tp=meta.get("tp", 0.0))
+                            )
+                            print(
+                                f"order {sig.action} sym={sym} vol={volume} "
+                                f"ticket={placed['ticket']} reason={sig.reason}"
+                            )
                     except Exception as exc:
-                        print(f"bridge error {sym}: {exc}", file=sys.stderr)
+                        # Anything reaching here is a downstream failure (history,
+                        # strategy, risk, or order manager). Log and move on; the
+                        # next iteration will retry naturally.
+                        print(f"iteration error {sym}: {exc}", file=sys.stderr)
                         continue
-
-                    df = history.fetch(symbol=sym, timeframe=timeframe, bars=200)
-                    sig = strategy.generate_signal(df)
-
-                    if sig.action in ("BUY", "SELL"):
-                        volume = risk.size_position(sym, sig, account, df)
-                        meta = sig.meta or {}
-                        placed = (
-                            om.buy(sym, volume, sl=meta.get("sl", 0.0), tp=meta.get("tp", 0.0))
-                            if sig.action == "BUY"
-                            else om.sell(sym, volume, sl=meta.get("sl", 0.0), tp=meta.get("tp", 0.0))
-                        )
-                        print(
-                            f"order {sig.action} sym={sym} vol={volume} "
-                            f"ticket={placed['ticket']} reason={sig.reason}"
-                        )
 
             state.iteration += 1
             state.positions = om.get_positions()
@@ -221,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
 
             # Reload strategy from params.yaml when autoresearch run completes;
             # restart after cooldown so optimisation continues in the background.
-            if ar_enabled and autoresearch_loop is not None:
+            if ar_enabled:
                 if autoresearch_thread is not None and not autoresearch_thread.is_alive():
                     strategy = _load_strategy(autoresearch_loop._load_params())
                     print(

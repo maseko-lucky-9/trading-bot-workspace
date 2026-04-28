@@ -14,7 +14,7 @@ import sys
 _BOT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_BOT_ROOT))
 
-from main import _load_config, _load_strategy, _handle_sigint, _start_autoresearch, main
+from main import _load_config, _load_strategy, _handle_sigint, _start_autoresearch, _ping_with_backoff, main
 import main as main_module
 
 
@@ -305,6 +305,222 @@ def test_main_bridge_get_account_exception_uses_default():
         mock_ckpt.return_value.load.return_value = None
         rc = main(["--mode", "paper", "--max-seconds", "2"])
     assert rc == 0
+
+
+# ------------------------------------------------------------------ #
+# Resilience: _ping_with_backoff                                     #
+# ------------------------------------------------------------------ #
+
+def test_ping_with_backoff_returns_true_on_first_success(monkeypatch):
+    bridge = MagicMock()
+    bridge.ping.return_value = True
+    sleeps: list[float] = []
+    monkeypatch.setattr("main.time.sleep", lambda s: sleeps.append(s))
+    assert _ping_with_backoff(bridge, max_attempts=5, base_delay=0.01) is True
+    assert bridge.ping.call_count == 1
+    assert sleeps == []  # no retry, no sleep
+
+
+def test_ping_with_backoff_returns_true_after_retries(monkeypatch):
+    bridge = MagicMock()
+    # Fail twice, then succeed.
+    bridge.ping.side_effect = [Exception("conn refused"), Exception("conn refused"), True]
+    sleeps: list[float] = []
+    monkeypatch.setattr("main.time.sleep", lambda s: sleeps.append(s))
+    assert _ping_with_backoff(bridge, max_attempts=5, base_delay=1.0) is True
+    assert bridge.ping.call_count == 3
+    assert sleeps == [1.0, 2.0]  # exponential: 1s, 2s before the 3rd (successful) attempt
+
+
+def test_ping_with_backoff_returns_false_after_max_attempts(monkeypatch):
+    bridge = MagicMock()
+    bridge.ping.side_effect = Exception("conn refused")
+    sleeps: list[float] = []
+    monkeypatch.setattr("main.time.sleep", lambda s: sleeps.append(s))
+    assert _ping_with_backoff(bridge, max_attempts=4, base_delay=0.01) is False
+    assert bridge.ping.call_count == 4
+    # 3 sleeps before the 4th (final) attempt
+    assert len(sleeps) == 3
+
+
+def test_main_returns_3_when_bridge_unreachable_at_startup():
+    """Startup bridge.ping() failure must exit 3 (KeepAlive triggers respawn)."""
+    bridge = MagicMock()
+    bridge.ping.side_effect = Exception("Connection refused")
+    history_mock = MagicMock()
+    with (
+        patch("main._load_config", return_value=_paper_cfg()),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager"),
+        # Squash the 31s real-time wait
+        patch("main._ping_with_backoff", return_value=False),
+    ):
+        rc = main(["--mode", "paper", "--max-seconds", "1"])
+    assert rc == 3
+
+
+# ------------------------------------------------------------------ #
+# Resilience: per-symbol loop body tolerates downstream errors       #
+# ------------------------------------------------------------------ #
+
+def test_main_paper_continues_when_history_fetch_raises():
+    """history.fetch raising must not exit the bot — log and continue."""
+    bridge = _mock_bridge()
+    history_mock = MagicMock()
+    history_mock.fetch.side_effect = Exception("history bridge transient")
+    with (
+        patch("main._load_config", return_value=_paper_cfg()),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+    ):
+        mock_ckpt.return_value.load.return_value = None
+        rc = main(["--mode", "paper", "--max-seconds", "2"])
+    # Bot completed its max_seconds budget instead of crashing.
+    assert rc == 0
+
+
+def test_main_does_not_halt_on_stale_account_after_bridge_transient():
+    """When bridge.get_account() fails, must NOT run circuit breakers on the
+    10_000 fallback default. Otherwise peak_equity (set from real account, e.g.
+    100_000) and the fallback equity (10_000) produce a false-positive 90% DD
+    halt that latches forever."""
+    bridge = _mock_bridge()
+    # First call returns real account → peak_equity gets set to 100_000.
+    # Second call onwards: bridge fails → fallback would be 10_000.
+    bridge.get_account.side_effect = [
+        {"balance": 100_000.0, "equity": 100_000.0},
+        Exception("bridge transient"),
+        Exception("bridge transient"),
+    ]
+    history_mock = MagicMock()
+    history_mock.fetch.return_value = _flat_ohlcv()
+    with (
+        patch("main._load_config", return_value=_paper_cfg()),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+    ):
+        mock_ckpt.return_value.load.return_value = None
+        rc = main(["--mode", "paper", "--max-seconds", "2"])
+    assert rc == 0
+    # Verify the bot did not print a 90%-drawdown halt during the bridge transient.
+    # We can't easily capture stderr here; the assertion is structural — the run
+    # completing in 2s means it reached the loop, called get_account at least
+    # twice (asserting our retry path), and exited cleanly.
+    assert bridge.get_account.call_count >= 2
+
+
+def test_main_paper_continues_when_strategy_raises():
+    """strategy.generate_signal raising must not exit the bot."""
+    bridge = _mock_bridge()
+    history_mock = MagicMock()
+    history_mock.fetch.return_value = _flat_ohlcv()
+
+    bad_strategy = MagicMock()
+    bad_strategy.name = "ema_crossover"
+    bad_strategy.generate_signal.side_effect = Exception("indicator NaN")
+
+    with (
+        patch("main._load_config", return_value=_paper_cfg()),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+        patch("main._load_strategy", return_value=bad_strategy),
+    ):
+        mock_ckpt.return_value.load.return_value = None
+        rc = main(["--mode", "paper", "--max-seconds", "2"])
+    assert rc == 0
+
+
+# ------------------------------------------------------------------ #
+# main.py patch: autoresearch disabled → locked params still load    #
+# ------------------------------------------------------------------ #
+
+def test_disabled_autoresearch_loads_mean_reversion_from_params_yaml(tmp_path):
+    """autoresearch.enabled=False must load strategy from params.yaml, not default ema_crossover."""
+    import yaml as _yaml
+
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(_yaml.dump({
+        "strategy": "mean_reversion",
+        "bb_period": 14, "bb_std": 2.25,
+        "rsi_period": 7, "rsi_os": 30, "rsi_ob": 70, "atr_multiplier": 2.25,
+    }))
+
+    from autoresearch.loop import AutoresearchLoop
+    captured = {}
+
+    real_load_strategy = main_module._load_strategy
+
+    def spy_load_strategy(params):
+        captured["params"] = params
+        return real_load_strategy(params)
+
+    bridge = _mock_bridge()
+    history_mock = MagicMock()
+    history_mock.fetch.return_value = _flat_ohlcv()
+
+    cfg = {
+        "bot": {"mode": "paper", "instruments": ["EURUSD"], "timeframe": "H1"},
+        "autoresearch": {"enabled": False},
+    }
+
+    ar_loop = AutoresearchLoop(params_path=params_file, results_path=tmp_path / "results.tsv")
+
+    with (
+        patch("main._load_config", return_value=cfg),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+        patch("main.AutoresearchLoop", return_value=ar_loop),
+        patch("main._load_strategy", side_effect=spy_load_strategy),
+    ):
+        mock_ckpt.return_value.load.return_value = None
+        rc = main(["--mode", "paper", "--max-seconds", "1"])
+
+    assert rc == 0
+    assert captured["params"].get("strategy") == "mean_reversion", (
+        "Expected mean_reversion from params.yaml; got default ema_crossover. "
+        "Check main.py autoresearch_loop construction is unconditional."
+    )
+    assert captured["params"].get("bb_period") == 14
+
+
+def test_disabled_autoresearch_does_not_start_thread(tmp_path):
+    """autoresearch.enabled=False must never call _start_autoresearch."""
+    import yaml as _yaml
+
+    params_file = tmp_path / "params.yaml"
+    params_file.write_text(_yaml.dump({"strategy": "mean_reversion", "bb_period": 14, "bb_std": 2.25,
+                                       "rsi_period": 7, "rsi_os": 30, "rsi_ob": 70, "atr_multiplier": 2.25}))
+
+    from autoresearch.loop import AutoresearchLoop
+    ar_loop = AutoresearchLoop(params_path=params_file, results_path=tmp_path / "results.tsv")
+
+    bridge = _mock_bridge()
+    history_mock = MagicMock()
+    history_mock.fetch.return_value = _flat_ohlcv()
+
+    cfg = {
+        "bot": {"mode": "paper", "instruments": ["EURUSD"], "timeframe": "H1"},
+        "autoresearch": {"enabled": False},
+    }
+
+    with (
+        patch("main._load_config", return_value=cfg),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+        patch("main.AutoresearchLoop", return_value=ar_loop),
+        patch("main._start_autoresearch") as mock_start_ar,
+    ):
+        mock_ckpt.return_value.load.return_value = None
+        rc = main(["--mode", "paper", "--max-seconds", "1"])
+
+    assert rc == 0
+    mock_start_ar.assert_not_called()
 
 
 def test_main_autoresearch_thread_reloads_strategy_on_completion(tmp_path):

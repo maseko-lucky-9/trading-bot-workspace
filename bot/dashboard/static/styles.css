@@ -1,0 +1,122 @@
+/* MT5 Bot Dashboard — minimal dark theme. */
+:root {
+  --bg: #0e0e10;
+  --bg-elev: #17171a;
+  --fg: #e8e8ea;
+  --fg-muted: #9aa0a6;
+  --border: #2a2a2e;
+  --ok: #4ade80;
+  --warn: #facc15;
+  --bad: #f87171;
+  --accent: #60a5fa;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: 0.3px; }
+
+.meta { display: flex; align-items: center; gap: 10px; color: var(--fg-muted); font-family: var(--mono); font-size: 12px; }
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--fg-muted);
+  transition: background-color 0.2s;
+}
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px 20px;
+}
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+.pane {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  min-height: 200px;
+}
+.pane h2 {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+/* Health key/value list */
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+.kv dt { color: var(--fg-muted); }
+.kv dd { margin: 0; font-family: var(--mono); }
+.kv dd.ok { color: var(--ok); }
+.kv dd.warn { color: var(--warn); }
+.kv dd.bad { color: var(--bad); }
+
+/* Metrics tiles */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.tile {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.tile-label { color: var(--fg-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.tile-value { font-family: var(--mono); font-size: 18px; margin-top: 4px; }
+
+/* Trades table */
+.filters { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.filters label { color: var(--fg-muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.filters select, .filters input, .filters button {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+.filters button { cursor: pointer; }
+.filters button:hover { border-color: var(--accent); }
+
+.table-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--border); border-radius: 4px; }
+table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+thead { position: sticky; top: 0; background: var(--bg-elev); }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { cursor: pointer; user-select: none; color: var(--fg-muted); font-weight: 500; }
+th:hover { color: var(--fg); }
+td.profit-pos { color: var(--ok); }
+td.profit-neg { color: var(--bad); }
+
+.muted { color: var(--fg-muted); font-size: 12px; margin: 8px 0 0 0; }

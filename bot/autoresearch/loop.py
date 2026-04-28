@@ -44,8 +44,8 @@ _ENGINE = _BOT_ROOT / "backtest" / "engine.py"
 
 # Strategy-specific parameter search spaces: (name, step, min, max)
 _PARAMS_EMA = [
-    ("ema_fast", 1.0, 3.0, 20.0),
-    ("ema_slow", 1.0, 5.0, 30.0),   # M15 productive range; ema_slow>30 rarely trades enough
+    ("ema_fast", 1.0, 3.0, 30.0),
+    ("ema_slow", 1.0, 8.0, 50.0),   # H1 productive range; 9/21, 20/50 all in scope
     ("atr_multiplier", 0.25, 0.5, 4.0),
 ]
 

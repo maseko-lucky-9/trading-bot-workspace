@@ -1,101 +1,67 @@
 """
-Detect the UTM shared folder mount point and update config.yaml automatically.
-Run this after the Windows VM is started and the shared folder is mapped.
+Probe the MT5 HTTP bridge and report status.
+
+Usage:
+    python scripts/detect_bridge.py [--url URL] [--timeout N]
+
+Exits 0 if bridge is reachable and ea_connected=true.
+Exits 1 if bridge is reachable but ea_connected=false.
+Exits 2 if bridge is unreachable.
 """
+from __future__ import annotations
+
+import argparse
 import json
-import os
-import time
+import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import yaml
 
-KNOWN_MOUNT_HINTS = [
-    "/Volumes/mt5bridge",
-    "/Volumes/share",
-    "/Volumes/Shared",
-    "/Volumes/SHARE",
-]
-
-CONFIG_PATH = Path(__file__).parent.parent.parent / "bot" / "config.yaml"
+_BOT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def find_bridge_folder() -> Path | None:
-    # 1 — check hints first
-    for p in KNOWN_MOUNT_HINTS:
-        if Path(p).exists():
-            return Path(p)
-
-    # 2 — scan all volumes for heartbeat.json written by the EA
-    for vol in Path("/Volumes").iterdir():
-        if (vol / "heartbeat.json").exists():
-            return vol
-
-    # 3 — UTM may also mount via /tmp or ~/Library/Containers
-    utm_share = Path.home() / "Library" / "Containers" / "com.utmapp.UTM" / "Data" / "Documents"
-    if utm_share.exists():
-        for d in utm_share.rglob("heartbeat.json"):
-            return d.parent
-
-    return None
+def _read_bridge_url() -> str:
+    cfg_path = _BOT_ROOT / "config.yaml"
+    if cfg_path.exists():
+        with cfg_path.open() as f:
+            cfg = yaml.safe_load(f) or {}
+        return (cfg.get("bridge") or {}).get("base_url", "http://localhost:8080")
+    return "http://localhost:8080"
 
 
-def wait_for_mount(timeout: int = 60) -> Path | None:
-    print(f"Scanning for MT5 bridge folder (timeout {timeout}s)...")
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        folder = find_bridge_folder()
-        if folder:
-            print(f"  Found: {folder}")
-            return folder
-        print("  Not found yet, retrying in 3s...")
-        time.sleep(3)
-    return None
-
-
-def update_config(folder: Path):
-    cfg_path = Path(__file__).resolve().parent.parent / "config.yaml"
-    if not cfg_path.exists():
-        cfg_path = Path(__file__).resolve().parent.parent.parent / "bot" / "config.yaml"
-
-    with open(cfg_path) as f:
-        cfg = yaml.safe_load(f)
-
-    cfg["bridge"]["shared_folder"] = str(folder)
-
-    with open(cfg_path, "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False)
-
-    print(f"  config.yaml updated → bridge.shared_folder: {folder}")
-
-
-def check_heartbeat(folder: Path) -> bool:
-    hb = folder / "heartbeat.json"
-    if not hb.exists():
-        return False
+def probe(url: str, timeout: int) -> dict:
     try:
-        data = json.loads(hb.read_text())
-        age = time.time() - data.get("time", 0)
-        return age < 15
-    except Exception:
-        return False
+        with urllib.request.urlopen(f"{url.rstrip('/')}/ping", timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except (urllib.error.URLError, OSError):
+        return {}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Probe the MT5 HTTP bridge /ping endpoint")
+    parser.add_argument("--url", default=None, help="Override bridge base URL from config.yaml")
+    parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds")
+    args = parser.parse_args()
+
+    url = args.url or _read_bridge_url()
+    data = probe(url, args.timeout)
+
+    if not data:
+        print(f"UNREACHABLE  {url}/ping")
+        print("  → Is the bridge server running? (bash scripts/start_bridge.sh)")
+        print("  → Is the Windows VM online and the EA attached with AutoTrading ON?")
+        return 2
+
+    ea_connected = data.get("ea_connected", False)
+    status = "OK" if ea_connected else "BRIDGE UP / EA DISCONNECTED"
+    print(f"{status}  {url}/ping")
+    for k, v in data.items():
+        print(f"  {k}: {v}")
+
+    return 0 if ea_connected else 1
 
 
 if __name__ == "__main__":
-    folder = wait_for_mount(timeout=60)
-    if not folder:
-        print("\nNot found. Checklist:")
-        print("  1. Is the Windows VM running?")
-        print("  2. Is PythonBridge EA attached to a chart with AutoTrading ON?")
-        print("  3. In UTM → VM Settings → Sharing — is the shared folder enabled?")
-        print("  4. In Windows, is the shared folder accessible (Z:\\ or \\\\mac\\)?")
-        print("     Change EA input SHARED_FOLDER to that Windows path.")
-        raise SystemExit(1)
-
-    print(f"\nBridge folder found: {folder}")
-
-    alive = check_heartbeat(folder)
-    print(f"EA heartbeat: {'ALIVE' if alive else 'STALE — EA may not be running'}")
-
-    update_config(folder)
-    print("\nStart the bridge server:")
-    print("  python core/bridge/http_server.py")
+    sys.exit(main())

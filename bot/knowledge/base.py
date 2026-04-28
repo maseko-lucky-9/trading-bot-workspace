@@ -15,7 +15,7 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 
 class KnowledgeBase:
     DEFAULT_PATH = (
-        Path(__file__).resolve().parents[2] / "research" / "knowledge-base.md"
+        Path(__file__).resolve().parents[1] / "research" / "knowledge-base.md"
     )
 
     def __init__(self, kb_path: Path | None = None) -> None:

@@ -1,3 +1,8 @@
 iteration	param	old_val	new_val	sharpe	dsr	max_dd	win_rate	decision	strategy	timestamp
-100	optuna	0.0	0.0	3.7483	-0.4992			optuna_tpe	ema_crossover	2026-04-26T19:45:01.449121+00:00
-50	optuna	0.0	0.0	3.7483	0.0355			optuna_nsga2	ema_crossover	2026-04-26T19:50:38.770663+00:00
+50	optuna	0.0	0.0	2.0873	0.9828			optuna_tpe	mean_reversion	2026-04-27T10:56:16.103768+00:00
+100	optuna	0.0	0.0	2.9986	-1.3005			optuna_tpe	mean_reversion	2026-04-27T11:03:53.577113+00:00
+1	bb_period	14.0	15.0	-0.4327	-3.3088			rollback	mean_reversion	2026-04-27T11:32:23.177023+00:00
+2	bb_std	2.25	2.5	-0.4055	-3.1866			rollback	mean_reversion	2026-04-27T11:32:30.410727+00:00
+3	rsi_period	7.0	8.0	0.3333	-2.3482		16.7	rollback	mean_reversion	2026-04-27T11:32:37.573551+00:00
+4	atr_multiplier	2.25	2.5	1.2233	-1.4615			rollback	mean_reversion	2026-04-27T11:32:44.706370+00:00
+5	bb_period	14.0	13.0	2.1518	-0.7049			keep	mean_reversion	2026-04-27T11:32:51.738416+00:00

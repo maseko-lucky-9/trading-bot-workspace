@@ -133,3 +133,27 @@ def test_empty_file_gives_empty_sections(tmp_path):
     md.write_text("")
     kb = KnowledgeBase(kb_path=md)
     assert kb.sections == []
+
+
+# ------------------------------------------------------------------ #
+# Default path — verifies the real research/knowledge-base.md loads  #
+# ------------------------------------------------------------------ #
+
+def test_default_path_resolves_and_loads():
+    """DEFAULT_PATH must point to the real knowledge-base.md file."""
+    assert KnowledgeBase.DEFAULT_PATH.exists(), (
+        f"knowledge-base.md not found at {KnowledgeBase.DEFAULT_PATH}"
+    )
+    kb = KnowledgeBase()
+    assert len(kb.sections) >= 5, "Expected ≥5 sections in the real knowledge base"
+
+
+def test_default_kb_has_expected_content():
+    """Spot-check known sections in the real knowledge base."""
+    kb = KnowledgeBase()
+    assert kb.get_strategy("EMA") is not None
+    assert kb.get_strategy("Mean Reversion") is not None
+    rules = kb.get_risk_rules()
+    assert len(rules) >= 1
+    hits = kb.query("ATR")
+    assert len(hits) >= 1

@@ -412,6 +412,9 @@ class _Position:
     entry_time: Any
     meta_features: Any = None   # np.ndarray captured at entry for MetaLabeller
     meta_prob: float = 0.0      # P(profit) from MetaLabeller at entry; 0 if unused
+    intent: str = ""            # human-readable reason from strategy (F16)
+    expected_rr: float = 0.0   # |TP − entry| / |SL − entry| at entry time (F16)
+    regime_at_entry: int = -1  # regime label at entry bar (-1 = not captured)
 
 
 @dataclass
@@ -451,6 +454,9 @@ def _close_position(
         "exit_time": exit_time,
         "reason": reason,
         "meta_prob": pos.meta_prob,
+        "intent": pos.intent,
+        "expected_rr": pos.expected_rr,
+        "regime_at_entry": pos.regime_at_entry,
     })
 
 
@@ -630,16 +636,26 @@ def _run_event_loop(
                     else None
                 )
                 ml_prob = float(signal.strength) if isinstance(strat, MetaLabeller) else 0.0
+                # F16: intent + expected R:R
+                _sl = float(signal.meta["sl"])
+                _tp = float(signal.meta["tp"])
+                _rr_denom = abs(entry_price - _sl)
+                _expected_rr = (
+                    abs(_tp - entry_price) / _rr_denom if _rr_denom > 0 else 0.0
+                )
                 state.positions.append(_Position(
                     side=signal.action,
                     entry=entry_price,
-                    sl=float(signal.meta["sl"]),
-                    tp=float(signal.meta["tp"]),
+                    sl=_sl,
+                    tp=_tp,
                     volume=volume,
                     entry_idx=i + 1,
                     entry_time=next_bar["time"] if "time" in df.columns else i + 1,
                     meta_features=ml_features,
                     meta_prob=ml_prob,
+                    intent=signal.reason,
+                    expected_rr=_expected_rr,
+                    regime_at_entry=current_regime if current_regime is not None else -1,
                 ))
 
         # 6. Mark-to-market and update peak
@@ -659,6 +675,176 @@ def _run_event_loop(
             )
         state.positions.clear()
         # Record final equity point
+        state.equity_curve.append({"time": last_time, "equity": state.equity})
+
+    return _compute_stats(
+        trades=state.closed,
+        equity_curve=state.equity_curve,
+        starting_equity=starting_equity,
+        n_bars=n,
+    )
+
+
+def _run_event_loop_pairs(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    params: dict,
+    config: dict,
+) -> dict:
+    """Simulate PairsTradingStrategy over two synchronised bar series.
+
+    Drives ``generate_signal_pairs(df1_window, df2_window)`` at each bar,
+    applies the same session/news/regime filters, RiskManager, and cost
+    model as the single-symbol loop.  Only the primary leg (symbol1) is
+    sized and tracked for P&L; the hedge leg P&L is implicit in the spread.
+    """
+    from core.strategy.pairs_trading import PairsTradingStrategy
+
+    strat = PairsTradingStrategy.from_config(config)
+    risk = RiskManager(config)
+    starting_equity = float(
+        (config.get("backtest") or {}).get("starting_equity", DEFAULT_STARTING_EQUITY)
+    )
+    symbol = strat.symbol1
+    costs = SymbolCosts.from_config(config, symbol)
+    pip_size = _pip_size_for(symbol)
+    session_filter = SessionFilter.from_config(config)
+    news_filter = NewsBlackout.from_config(config, bot_root=_BOT_ROOT)
+
+    regime_cfg = (config.get("filters") or {}).get("regime") or {}
+    regime_enabled = bool(regime_cfg.get("enabled", True))
+    regimes: pd.Series | None = None
+    if regime_enabled and len(df1) > 0:
+        regimes = RegimeDetector.from_config(config).detect(df1)
+
+    state = _SimState(
+        equity=starting_equity,
+        peak_equity=starting_equity,
+        day_start_equity=starting_equity,
+    )
+
+    min_bars = max(strat.spread_window, strat.hedge_window) + 2
+    n = min(len(df1), len(df2))
+    if n < min_bars + 1:
+        return _compute_stats(
+            trades=state.closed,
+            equity_curve=state.equity_curve,
+            starting_equity=starting_equity,
+            n_bars=n,
+        )
+
+    for i in range(min_bars, n - 1):
+        bar1 = df1.iloc[i]
+        next_bar1 = df1.iloc[i + 1]
+        bar_time = bar1["time"] if "time" in df1.columns else i
+        next_open = float(next_bar1["open"])
+
+        # 1. Day boundary
+        if isinstance(bar_time, pd.Timestamp):
+            today = bar_time.date()
+            if state.last_day != today:
+                state.day_start_equity = state.equity
+                state.last_day = today
+
+        # 2. Process exits (SL/TP on primary-leg H/L)
+        high = float(bar1["high"])
+        low = float(bar1["low"])
+        for pos in list(state.positions):
+            exit_price = None
+            is_stop = False
+            if pos.side == "BUY":
+                if low <= pos.sl:
+                    exit_price, is_stop = pos.sl, True
+                elif high >= pos.tp:
+                    exit_price, is_stop = pos.tp, False
+            else:
+                if high >= pos.sl:
+                    exit_price, is_stop = pos.sl, True
+                elif low <= pos.tp:
+                    exit_price, is_stop = pos.tp, False
+            if exit_price is not None:
+                _close_position(
+                    state, pos, exit_price, bar_time, pip_size, costs,
+                    reason=("sl_hit" if is_stop else "tp_hit"),
+                    is_stop=is_stop,
+                )
+                state.positions.remove(pos)
+
+        # 3. Circuit-breaker
+        account = {"balance": state.equity, "equity": state.equity}
+        ok, _ = risk.check_circuit_breakers(
+            account=account,
+            recent_closed=state.closed,
+            peak_equity=state.peak_equity,
+            day_start_equity=state.day_start_equity,
+        )
+
+        # 4. Generate pairs signal on windowed DataFrames
+        w1 = df1.iloc[: i + 1]
+        w2 = df2.iloc[: i + 1]
+        signal = strat.generate_signal_pairs(w1, w2)
+
+        current_regime: int | None = int(regimes.iloc[i]) if regimes is not None else None
+        if current_regime is not None:
+            signal.meta["regime"] = current_regime
+
+        # 5. Entry — regime filter not applied to pairs (no strategy_regime_map entry)
+        if (
+            ok
+            and not state.positions
+            and signal.action in ("BUY", "SELL")
+            and signal.meta.get("sl") is not None
+            and signal.meta.get("tp") is not None
+            and session_filter.is_active(bar_time)
+            and news_filter.is_active(bar_time, symbol)
+        ):
+            half_spread = (costs.spread_pips * pip_size) / 2.0
+            entry_price = (
+                next_open + half_spread if signal.action == "BUY"
+                else next_open - half_spread
+            )
+            volume = risk.size_position(
+                symbol, signal, account, w1,
+                trade_history=state.closed,
+            )
+            adj = risk.get_position_adjustment(state.equity, state.peak_equity)
+            volume = max(0.0, volume * adj)
+            if volume > 0:
+                volume = round(round(volume / LOT_STEP) * LOT_STEP, 2)
+            if volume >= LOT_STEP:
+                _sl = float(signal.meta["sl"])
+                _tp = float(signal.meta["tp"])
+                _rr_denom = abs(entry_price - _sl)
+                _expected_rr = abs(_tp - entry_price) / _rr_denom if _rr_denom > 0 else 0.0
+                state.positions.append(_Position(
+                    side=signal.action,
+                    entry=entry_price,
+                    sl=_sl,
+                    tp=_tp,
+                    volume=volume,
+                    entry_idx=i + 1,
+                    entry_time=next_bar1["time"] if "time" in df1.columns else i + 1,
+                    intent=signal.reason,
+                    expected_rr=_expected_rr,
+                    regime_at_entry=current_regime if current_regime is not None else -1,
+                ))
+
+        # 6. Mark-to-market
+        mtm_equity = _mark_to_market(state, float(bar1["close"]), pip_size)
+        state.peak_equity = max(state.peak_equity, mtm_equity)
+        state.equity_curve.append({"time": bar_time, "equity": mtm_equity})
+
+    # 7. Close remaining at end of series
+    if state.positions and n > 0:
+        last = df1.iloc[-1]
+        last_close = float(last["close"])
+        last_time = last["time"] if "time" in df1.columns else n - 1
+        for pos in list(state.positions):
+            _close_position(
+                state, pos, last_close, last_time, pip_size, costs,
+                reason="end_of_series", is_stop=False,
+            )
+        state.positions.clear()
         state.equity_curve.append({"time": last_time, "equity": state.equity})
 
     return _compute_stats(
@@ -753,6 +939,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to config.yaml override (default: bot root config.yaml).",
     )
+    parser.add_argument(
+        "--symbol2",
+        default=None,
+        help="Second symbol for pairs trading strategy (e.g. GBPUSD).",
+    )
     args = parser.parse_args(argv)
 
     bot_root = _BOT_ROOT
@@ -781,48 +972,75 @@ def main(argv: list[str] | None = None) -> int:
     params.setdefault("rsi_ob", 70.0)
     params.setdefault("atr_multiplier", 1.5)
 
-    try:
-        loaded = _load_ohlcv_with_source(args.symbol, args.timeframe, args.bars, bot_root)
-    except Exception as exc:
-        print(f"ERROR loading data: {exc}", file=sys.stderr)
-        return 2
+    # Pairs trading takes a separate code path (needs two symbol DataFrames)
+    is_pairs = params.get("strategy") == "pairs_trading"
 
-    # F13: refuse synthetic data unless explicitly allowed.
-    if loaded.source == "synthetic" and not args.allow_synthetic:
-        print(
-            f"ERROR refusing synthetic data for {args.symbol}/{args.timeframe}; "
-            f"pass --allow-synthetic to override (development only).",
-            file=sys.stderr,
-        )
-        return 2
-
-    df = loaded.df
-
-    # CV mode (F4) — purged k-fold takes precedence over --wf-train-pct
-    cv = _parse_cv_arg(args.cv)
-    if cv and cv[0] == "kfold":
-        n_splits = cv[1]
+    if is_pairs:
+        pairs_cfg = cfg.get("pairs_trading") or {}
+        sym1 = str(args.symbol or pairs_cfg.get("symbol1", "EURUSD"))
+        sym2 = str(args.symbol2 or pairs_cfg.get("symbol2", "GBPUSD"))
         try:
-            result = _run_cv(df, params, cfg, args.symbol, n_splits, args.embargo,
-                             min_trades_per_fold=args.min_trades)
+            loaded1 = _load_ohlcv_with_source(sym1, args.timeframe, args.bars, bot_root)
+            loaded2 = _load_ohlcv_with_source(sym2, args.timeframe, args.bars, bot_root)
         except Exception as exc:
-            print(f"ERROR simulating CV: {exc}", file=sys.stderr)
+            print(f"ERROR loading pairs data: {exc}", file=sys.stderr)
+            return 2
+        for sym, loaded in ((sym1, loaded1), (sym2, loaded2)):
+            if loaded.source == "synthetic" and not args.allow_synthetic:
+                print(
+                    f"ERROR refusing synthetic data for {sym}/{args.timeframe}; "
+                    f"pass --allow-synthetic to override.",
+                    file=sys.stderr,
+                )
+                return 2
+        try:
+            result = _run_event_loop_pairs(loaded1.df, loaded2.df, params, cfg)
+        except Exception as exc:
+            print(f"ERROR simulating pairs: {exc}", file=sys.stderr)
             return 2
     else:
-        df = _apply_walk_forward(df, args.wf_train_pct)
-        if len(df) < 50:
-            print(f"insufficient bars: {len(df)}", file=sys.stderr)
+        try:
+            loaded = _load_ohlcv_with_source(args.symbol, args.timeframe, args.bars, bot_root)
+        except Exception as exc:
+            print(f"ERROR loading data: {exc}", file=sys.stderr)
             return 2
-        if len(df) < WARN_BARS:
+
+        # F13: refuse synthetic data unless explicitly allowed.
+        if loaded.source == "synthetic" and not args.allow_synthetic:
             print(
-                f"WARN bars={len(df)} below 4176 statistical minimum",
+                f"ERROR refusing synthetic data for {args.symbol}/{args.timeframe}; "
+                f"pass --allow-synthetic to override (development only).",
                 file=sys.stderr,
             )
-        try:
-            result = _run_simulation(df, params, cfg, args.symbol)
-        except Exception as exc:
-            print(f"ERROR simulating: {exc}", file=sys.stderr)
             return 2
+
+        df = loaded.df
+
+        # CV mode (F4) — purged k-fold takes precedence over --wf-train-pct
+        cv = _parse_cv_arg(args.cv)
+        if cv and cv[0] == "kfold":
+            n_splits = cv[1]
+            try:
+                result = _run_cv(df, params, cfg, args.symbol, n_splits, args.embargo,
+                                 min_trades_per_fold=args.min_trades)
+            except Exception as exc:
+                print(f"ERROR simulating CV: {exc}", file=sys.stderr)
+                return 2
+        else:
+            df = _apply_walk_forward(df, args.wf_train_pct)
+            if len(df) < 50:
+                print(f"insufficient bars: {len(df)}", file=sys.stderr)
+                return 2
+            if len(df) < WARN_BARS:
+                print(
+                    f"WARN bars={len(df)} below 4176 statistical minimum",
+                    file=sys.stderr,
+                )
+            try:
+                result = _run_simulation(df, params, cfg, args.symbol)
+            except Exception as exc:
+                print(f"ERROR simulating: {exc}", file=sys.stderr)
+                return 2
 
     metric_value = result.get(args.metric or "sharpe", result["sharpe"])
     if args.metric or (not args.metric and not args.guard):

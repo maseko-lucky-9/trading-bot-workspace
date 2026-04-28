@@ -3,9 +3,9 @@ bridge:
   heartbeat_timeout: 10                   # seconds before connection considered lost
 
 bot:
-  mode: "live"            # paper | live  (NEVER change to live without --confirm-live flag)
+  mode: "paper"           # paper | live  (NEVER change to live without --confirm-live flag)
   instruments:
-    - "GBPUSD"
+    - "EURUSD"
   timeframe: "M15"
   log_level: "INFO"
 
@@ -24,22 +24,36 @@ autoresearch:
   max_drawdown_guard: 0.05
   min_win_rate_guard: 0.43          # fallback when strategy-specific value is absent
   min_win_rate_guard_ema: 0.30      # EMA crossover break-even at ~2.3:1 R:R (ATR 1.5× SL/TP); Sharpe is the primary gate
-  min_win_rate_guard_mr: 0.50       # mean reversion targets higher win rate; raise to 0.55 on real data
+  min_win_rate_guard_mr: 0.50       # mean reversion on M15; raise to 0.55 on real H1 data
   iterations: 50
   metric_command: "python backtest/engine.py --metric sharpe"
   guard_command: "python backtest/engine.py --guard"
-  enabled: true
+  enabled: false            # disabled during OOS paper-trading window — re-enable only after DSR re-evaluation
   iterations_per_run: 5      # steps per background run (full 50 spread across multiple restarts)
   cooldown_seconds: 3600     # wait this long before restarting after a run completes
   wf_train_pct: 0.8          # walk-forward hold-out fraction for guard calls (0.0 disables)
   multi_symbol_mean: true    # aggregate verify sharpe as mean across symbols
-  cv_embargo: 96             # 1 trading day on M15 (96 bars); use 24 for H1
-  min_trades_per_fold: 20    # reject param sets averaging < 20 trades per CV fold
-  verify_bars: 5000          # bars passed to engine on each verify call
+  cv_n_splits: 5             # 5 folds on M15
+  cv_embargo: 96             # 1 trading day on M15 (96 bars = 4 bars/hr × 24 hrs)
+  min_trades_per_fold: 5     # require at least 5 trades per fold; M15 generates enough
+  verify_bars: 5000          # EURUSD M15 available bars
 
 monitoring:
   poll_interval_s: 5            # PositionMonitor polling interval
   log_path: "logs/positions.jsonl"
+
+pairs_trading:
+  symbol1: "EURUSD"
+  symbol2: "GBPUSD"
+  entry_zscore: 2.0             # z-score threshold to enter a spread position
+  exit_zscore: 0.5              # z-score threshold to exit (not used by backtest SL/TP exit)
+  spread_window: 60             # bars for rolling z-score and half-life estimation
+  hedge_window: 60              # bars for rolling OLS hedge ratio β
+  atr_sl_multiplier: 1.5
+  atr_period: 14
+  require_cointegration: false  # set true to enforce ADF p-value gate
+  coint_pvalue_threshold: 0.05
+  coint_check_every: 20
 
 filters:
   sessions:

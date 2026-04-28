@@ -1,10 +1,10 @@
-atr_multiplier: 1.5
-bb_period: 20
-bb_std: 2.0
-ema_fast: 3.0
-ema_slow: 9.0
+atr_multiplier: 2.25
+bb_period: 14.0
+bb_std: 2.25
+ema_fast: 9.0
+ema_slow: 21.0
 risk_pct: 0.01
 rsi_ob: 70
 rsi_os: 30
-rsi_period: 14
-strategy: ema_crossover
+rsi_period: 7.0
+strategy: mean_reversion

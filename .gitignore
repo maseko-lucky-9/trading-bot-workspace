@@ -22,3 +22,5 @@ logs/
 .env
 *.env
 bot/pipeline/state-20260426-position-monitor.json
+logs/bridge.log
+logs/bridge.log

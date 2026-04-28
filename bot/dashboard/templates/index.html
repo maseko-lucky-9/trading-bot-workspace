@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MT5 Bot Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <!-- Chart.js 4.4.0 — pinned + integrity-checked.
+       SHA-384 of dist/chart.umd.min.js published with the release. -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+    crossorigin="anonymous"></script>
+</head>
+<body>
+  <header>
+    <h1>MT5 Bot Dashboard</h1>
+    <div class="meta">
+      <span id="last-poll">last poll: —</span>
+      <span class="dot" id="poll-dot" aria-hidden="true"></span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- Pane 1: Bot health -->
+    <section class="pane" id="pane-health">
+      <h2>Health</h2>
+      <dl class="kv">
+        <dt>Process</dt><dd id="health-process">—</dd>
+        <dt>PID / uptime</dt><dd id="health-pid">—</dd>
+        <dt>Bridge</dt><dd id="health-bridge">—</dd>
+        <dt>EA connected</dt><dd id="health-ea">—</dd>
+        <dt>Bridge latency</dt><dd id="health-latency">—</dd>
+        <dt>Regime</dt><dd id="health-regime">—</dd>
+        <dt>Drawdown / peak</dt><dd id="health-dd">—</dd>
+      </dl>
+    </section>
+
+    <!-- Pane 2: Equity + drawdown chart -->
+    <section class="pane" id="pane-equity">
+      <h2>Equity &amp; drawdown</h2>
+      <canvas id="equity-chart" height="180"></canvas>
+      <p class="muted" id="equity-meta">—</p>
+    </section>
+
+    <!-- Pane 3: Performance metrics -->
+    <section class="pane" id="pane-metrics">
+      <h2>Performance</h2>
+      <div class="tiles">
+        <div class="tile"><div class="tile-label">Sharpe</div><div class="tile-value" id="m-sharpe">—</div></div>
+        <div class="tile"><div class="tile-label">DSR</div><div class="tile-value" id="m-dsr">—</div></div>
+        <div class="tile"><div class="tile-label">Expectancy</div><div class="tile-value" id="m-expectancy">—</div></div>
+        <div class="tile"><div class="tile-label">Win rate</div><div class="tile-value" id="m-winrate">—</div></div>
+        <div class="tile"><div class="tile-label">Payoff</div><div class="tile-value" id="m-payoff">—</div></div>
+        <div class="tile"><div class="tile-label">Trades</div><div class="tile-value" id="m-trades">—</div></div>
+      </div>
+    </section>
+
+    <!-- Pane 4: Trade table -->
+    <section class="pane" id="pane-trades">
+      <h2>Recent trades</h2>
+      <div class="filters">
+        <label>Side
+          <select id="filter-side">
+            <option value="ALL">All</option>
+            <option value="BUY">Buy</option>
+            <option value="SELL">Sell</option>
+          </select>
+        </label>
+        <label>Symbol
+          <input id="filter-symbol" type="text" placeholder="e.g. EURUSD" />
+        </label>
+        <button id="filter-apply" type="button">Apply</button>
+      </div>
+      <div class="table-wrap">
+        <table id="trades-table">
+          <thead>
+            <tr>
+              <th data-key="ticket">Ticket</th>
+              <th data-key="symbol">Symbol</th>
+              <th data-key="type">Side</th>
+              <th data-key="volume">Vol</th>
+              <th data-key="open_price">Open</th>
+              <th data-key="close_price">Close</th>
+              <th data-key="profit">Profit</th>
+              <th data-key="r_multiple">R</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

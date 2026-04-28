@@ -247,4 +247,32 @@ class PairsTradingStrategy(Strategy):
             reason="use_generate_signal_pairs_for_pairs_trading",
         )
 
+    # ------------------------------------------------------------------ #
+    # Construction helpers                                               #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def from_config(cls, config: dict) -> "PairsTradingStrategy":
+        """Build from the top-level bot config dict.
+
+        Reads ``pairs_trading`` sub-dict; falls back to safe defaults.
+        """
+        cfg = config.get("pairs_trading") or {}
+        instruments = list((config.get("bot") or {}).get("instruments", ["EURUSD", "GBPUSD"]))
+        sym1 = str(cfg.get("symbol1", instruments[0] if instruments else "EURUSD"))
+        sym2 = str(cfg.get("symbol2", instruments[1] if len(instruments) > 1 else "GBPUSD"))
+        return cls(
+            symbol1=sym1,
+            symbol2=sym2,
+            entry_zscore=float(cfg.get("entry_zscore", 2.0)),
+            exit_zscore=float(cfg.get("exit_zscore", 0.5)),
+            spread_window=int(cfg.get("spread_window", 60)),
+            hedge_window=int(cfg.get("hedge_window", 60)),
+            atr_sl_multiplier=float(cfg.get("atr_sl_multiplier", 1.5)),
+            atr_period=int(cfg.get("atr_period", 14)),
+            coint_pvalue_threshold=float(cfg.get("coint_pvalue_threshold", 0.05)),
+            require_cointegration=bool(cfg.get("require_cointegration", False)),
+            coint_check_every=int(cfg.get("coint_check_every", 20)),
+        )
+
 
