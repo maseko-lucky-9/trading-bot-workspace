@@ -222,3 +222,38 @@ class RiskManager:
         if volume > self.max_lots:
             return False, f"volume>{self.max_lots}"
         return True, "ok"
+
+    # ------------------------------------------------------------------ #
+    # Drawdown-aware capital preservation                                #
+    # ------------------------------------------------------------------ #
+
+    def preservation_factor(
+        self,
+        peak_equity: float,
+        current_equity: float,
+    ) -> float:
+        """Return a drawdown-tier multiplier in [0.0, 1.0].
+
+        Tiered against the existing trailing-DD thresholds (warn / reduce /
+        halt). Caller multiplies its intended position size by the returned
+        value; ``0.0`` means do not open new positions.
+
+            no DD or peak<=0      -> 1.00
+            DD < trailing_dd_warn -> 1.00
+            DD >= warn   (10%)    -> 0.50  (compendium: reduce frequency + size)
+            DD >= reduce (15%)    -> 0.25
+            DD >= halt   (20%)    -> 0.00
+
+        Additive method: ``size_position`` is intentionally NOT modified.
+        Existing risk tests must remain green.
+        """
+        if peak_equity <= 0:
+            return 1.0
+        drawdown = max(0.0, (peak_equity - current_equity) / peak_equity)
+        if drawdown >= self.trailing_dd_halt:
+            return 0.0
+        if drawdown >= self.trailing_dd_reduce:
+            return 0.25
+        if drawdown >= self.trailing_dd_warn:
+            return 0.5
+        return 1.0
