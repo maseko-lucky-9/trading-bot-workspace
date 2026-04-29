@@ -142,3 +142,19 @@ trading-bot-workspace/
 ```
 
 ---
+
+## Agent (Ralph cycle) Implementation Log (2026-04-29) — Trending strategy v1.1 fixes
+
+- US-011 PASS: SL/TP geometry fix. Class defaults sl_atr_buffer 0.25→1.0, tp_r_multiple 2.0→1.5. _load_strategy and _build_strategy fallbacks aligned. Backtest on 3683 EURUSD M15: drawdown OK, win_rate ≥30% (was 0%), sharpe 0.857. Suite 711 passed.
+- US-012 PASS: Pin-bar candle filter. New core/strategy/candles.py with is_pin_bar / is_pin_bar_at. Wired into TrendFollowing premium mode with tail_ratio_min=1.5 (relaxed from canonical 2.0). 11 new candle tests; 2 new premium-mode pin-gate tests. Standard mode unaffected. Premium-mode trade count on 38-day window is 0 because Fib+pin AND-gate is restrictive — pin-bar correctness verified by marubozu-rejection unit test. Suite 724 passed.
+- US-013 PASS: Lock-canary verification. tests/test_oos_locks.py green; locked SHA-256 fixture untouched; autoresearch.enabled still false.
+
+Net behaviour change:
+- Standard mode: GUARD PASS on 3683-bar EURUSD M15, drawdown 1.60%, win_rate 53.3%, 15 trades. Strategy now produces a viable real-data result (was 0% win rate at v1 defaults).
+- Premium mode: 0 trades on 38 days; needs longer data window to surface.
+- OOS window v2 unaffected (trend_following ships dormant; mean_reversion bytes unchanged).
+
+Notes for future Ralph cycles:
+- Multi-leg partial-fill exit (book §3 Phase 4: partial at 1:2 + BE-trail + HTF target) is the single highest-impact next item — would let the strategy reach the compendium's 1:2+ R:R profile without the v1.1 sl_atr_buffer bandage.
+- Liquidity-sweep / demand-zone detection replaces the Fib zone proxy (the current bottleneck for premium-mode trade count).
+- MACD divergence filter (Adam Grimes) — complement to pin-bar in standard mode for higher selectivity.

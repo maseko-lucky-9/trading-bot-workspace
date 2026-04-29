@@ -300,6 +300,32 @@ class TrendFollowing(Strategy):
                     },
                 )
 
+            # --- Pin-bar candle trigger (US-012) ------------------------- #
+            # Naked Forex Ch 8 "Kangaroo Tail" — premium entry requires the
+            # latest closed bar to be a pin in the BoS direction. Filters
+            # out chop-induced false signals at premium zones.
+            #
+            # tail_ratio_min=1.5 is intentionally below the Naked Forex
+            # canonical 2.0; with the Fib zone + HTF bias + BoS confluence
+            # already restricting setups, the canonical 2.0 produces zero
+            # trades on a 38-day window. The 1.5 threshold preserves the
+            # pin-bar shape requirement while allowing the strategy to fire
+            # occasionally on real data.
+            from core.strategy.candles import is_pin_bar_at  # local import — avoids cycle
+
+            pin_direction = "bullish" if bos["direction"] == "bullish" else "bearish"
+            if not is_pin_bar_at(df, len(df) - 1, pin_direction, tail_ratio_min=1.5):
+                return Signal(
+                    action="HOLD",
+                    strength=0.0,
+                    reason="no_pin_bar_confirmation",
+                    meta={
+                        "htf_bias": htf_bias,
+                        "bos_direction": bos["direction"],
+                        "mode": self.mode,
+                    },
+                )
+
         # --- Build the signal -------------------------------------------- #
         ind = self.compute_indicators(df)
         last = ind.iloc[-1]
