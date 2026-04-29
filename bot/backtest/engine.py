@@ -147,10 +147,10 @@ def _build_strategy(params: dict):
             htf_resample_rule=str(params.get("htf_resample_rule", "4h")),
             swing_left=int(params.get("swing_left", 2)),
             swing_right=int(params.get("swing_right", 2)),
-            tp_r_multiple=float(params.get("tp_r_multiple", 2.0)),
+            tp_r_multiple=float(params.get("tp_r_multiple", 1.5)),
             atr_period=int(params.get("atr_period", 14)),
             atr_sl_multiplier=float(params.get("atr_sl_multiplier", 1.5)),
-            sl_atr_buffer=float(params.get("sl_atr_buffer", 0.25)),
+            sl_atr_buffer=float(params.get("sl_atr_buffer", 1.0)),
             reversal_lookback=int(params.get("reversal_lookback", 10)),
             mode=str(params.get("mode", "standard")),
         )

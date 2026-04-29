@@ -50,11 +50,12 @@ def test_load_strategy_trend_following_premium_mode():
 
 
 def test_load_strategy_trend_following_default_kwargs():
-    # No params besides the name — falls back to class defaults.
+    # No params besides the name — falls back to class defaults (v1.1).
     s = _load_strategy({"strategy": "trend_following"})
     assert isinstance(s, TrendFollowing)
     assert s.htf_resample_rule == "4h"
-    assert s.tp_r_multiple == 2.0
+    assert s.tp_r_multiple == 1.5  # v1.1 default
+    assert s.sl_atr_buffer == 1.0  # v1.1 default
     assert s.swing_left == 2
     assert s.swing_right == 2
     assert s.reversal_lookback == 10
