@@ -72,6 +72,7 @@ filters:
     strategy_regime_map:
       ema_crossover: [0]    # only trade in TREND regime (0)
       mean_reversion: [1]   # only trade in RANGE regime (1)
+      trend_following: [0]  # FX GOAT trend follower — TREND regime only
   meta_labeller:
     enabled: false              # start disabled; enable after ~30 closed trades warm-up
     threshold: 0.55             # minimum P(profit) to pass a signal through

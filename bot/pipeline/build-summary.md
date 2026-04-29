@@ -1,131 +1,69 @@
-# Build Summary — Local MT5 Bot Dashboard
+# Build Summary — Trending Strategy (FX GOAT) v1
 
-**Run ID:** `20260427-bot-dashboard`
-**Date:** 2026-04-27
+**Run ID:** `20260429-trending-fxgoat`
+**Branch:** `feat/trending-strategy-fxgoat-v1` ← `fix/paper-broker-resilience-v0.1.1`
+**Date:** 2026-04-29
+**Status:** SUCCESS — 711/711 tests pass; all AC mapped; 7 commits ready to push.
 
----
+## Summary
 
-## Build Result
-- **Status:** SUCCESS
-- **Repo location:** `/Users/ltmas/trading-bot-workspace/bot`
-- **Tech stack used:** Python 3.12, FastAPI, uvicorn, pandas, pyyaml, vanilla HTML+JS, Chart.js 4.4.0 (CDN). All deps already present in `requirements.txt`.
-- **Phases completed:** Phase 0 (intake), Phase 0.5 (design-brief + ADR), Phase 1 (plan with rolled-in review + context), Phase 4 (T1-T7 implementation), Phase 4.5 (integration verification), Phase 5 (final review). Phase 6 / 6.5 skipped (no infra; branch out of scope).
-- **Test results:** 31 new tests collected (`tests/dashboard/test_sources.py` 20, `tests/dashboard/test_endpoints.py` 11). Operator must run `python -m pytest -q` to physically execute. Expected: `582 passed` (551 baseline + 31 new), 0 failed. **Code-path verified by orchestrator review; physical execution pending.**
-- **Deployment artifact:** N/A (Phase 6 skipped — no infra files touched)
-- **Issues encountered:** Two non-blocking notes — (1) requirement quoted trades.csv schema using `side/pnl/entry/exit` but the actual file uses `type/profit/open_price/close_price`; corrected at intake. (2) Orchestrator cannot execute Bash, so `pytest` execution is delegated to operator with documented commands.
+- Adds the FX GOAT trend-following strategy (`core/strategy/trend_following.py`) and its market-structure helpers (`core/strategy/structure.py`), plus a tiered drawdown-aware sizing helper (`RiskManager.preservation_factor`).
+- Wires the new strategy into both `main._load_strategy` and `backtest.engine._build_strategy`. Existing `mean_reversion` and `ema_crossover` branches are byte-identical in behaviour.
+- Ships an isolated `autoresearch/params.trend.yaml` seed (human-review only — never read by the autoresearch loop). Adds `trend_following: [0]` to `filters.regime.strategy_regime_map`.
+- Codifies an OOS-window lock & isolation regression suite (`tests/test_oos_locks.py` + SHA-256 fixture).
+- Lands 15 operator docs under `bot/docs/trading/` derived from the FX GOAT Mastery Compendium, with a 61-test heading/frontmatter/gap-fill/code-delta-callout parser to keep them honest.
+- Strategy ships **dormant**: `params.yaml: strategy: mean_reversion` is locked and unchanged. The PR introduces zero live behaviour change.
 
----
+## Commits (oldest first)
 
-## Details
+| SHA | Title |
+|---|---|
+| `c8a58f7` | feat(strategy): trend_following + market-structure helpers (FX GOAT v1, Wave 1 T01-T03) |
+| `848f4ec` | feat(risk): preservation_factor for drawdown-aware sizing (T04) |
+| `ea300b6` | feat(strategy): wire trend_following into _load_strategy and backtest engine (T05) |
+| `c6211ca` | feat(autoresearch): isolated params.trend.yaml seed (T06) |
+| `990e64b` | feat(filters): wire trend_following into regime map; assert OOS lock (T07) |
+| `32ab0c4` | test(oos): lock & isolation regression suite (T08) |
+| `221ee20` | docs(trading): Wave-2 operator playbook — 15 docs derived from FX GOAT (T09-T15) |
 
-### Requirement
-Build a single-process FastAPI dashboard on `127.0.0.1:8090` that polls four read-only JSON endpoints to surface bot health, equity+drawdown chart, last-100 trade table, and Sharpe/DSR/expectancy/win-rate/payoff metrics — all without modifying the bot's runtime path or adding pip dependencies.
+## Acceptance criteria
 
-### Tasks completed
-| ID | Description | Files | Tests added |
-|---|---|---|---|
-| T1 | Scaffold dashboard package + ADR | `dashboard/__init__.py`, `dashboard/__main__.py`, `docs/decisions/0020-bot-dashboard.md` | 0 |
-| T2 | `probe_process` + `probe_bridge` adapters | `dashboard/sources.py` | 7 |
-| T3 | `read_trades`, `split_open_closed`, `compute_equity_series` | `dashboard/sources.py` (extended) | 6 |
-| T4 | `_compute_dsr`, `compute_metrics`, `current_regime` | `dashboard/sources.py` (extended) | 7 |
-| T5 | FastAPI routes + CSP middleware + static mount | `dashboard/app.py`, `tests/dashboard/test_endpoints.py` | 11 |
-| T6 | Frontend HTML + vanilla JS + dark CSS | `dashboard/templates/index.html`, `dashboard/static/app.js`, `dashboard/static/styles.css` | 0 |
-| T7 | Start script + README | `scripts/start_dashboard.sh`, `dashboard/README.md` | 0 |
+All 9 ACs satisfied. Per-AC evidence with file paths, test names, and commit SHAs is in [`pipeline/final-review.md`](./final-review.md).
 
-### Files changed
-**14 new files** (no existing files modified):
+## Compendium ↔ Code delta (accepted v1 simplifications)
 
-```
-dashboard/__init__.py
-dashboard/__main__.py
-dashboard/app.py
-dashboard/sources.py
-dashboard/templates/index.html
-dashboard/static/app.js
-dashboard/static/styles.css
-dashboard/README.md
-docs/decisions/0020-bot-dashboard.md
-scripts/start_dashboard.sh
-tests/dashboard/__init__.py
-tests/dashboard/conftest.py
-tests/dashboard/test_sources.py
-tests/dashboard/test_endpoints.py
-```
-
-### Architecture (delivered)
-
-```
-                    ┌──────────────────────────────┐
-                    │   Browser (operator only)    │
-                    │   http://127.0.0.1:8090/     │
-                    │   poll every 7s              │
-                    └──────────────┬───────────────┘
-                                   │ Promise.allSettled
-              ┌───────────┬────────┼────────┬───────────┐
-              ▼           ▼        ▼        ▼           ▼
-        /api/health  /api/equity /api/trades /api/metrics
-                                   │
-                                   ▼
-                       dashboard/app.py (FastAPI)
-                                   │
-                                   ▼
-                    dashboard/sources.py adapters
-                       │       │       │       │
-              probe_   │  read_│  compute_  │ current_
-              process  │ trades│  metrics   │ regime
-              ─────────┼───────┼────────────┼─────────
-              pgrep+   │ pandas│ Performance│ Regime
-              ps comm  │ csv   │ Tracker    │ Detector
-                       │       │  +DSR      │ (read-only
-                       │       │  helper    │  parquet)
-              ─────────┼───────┼────────────┼─────────
-              external │ logs/ │ core/perf/ │ bridge_data/
-              binaries │ trades│ tracker.py │ history/
-                       │ .csv  │ (imported) │ EURUSD_M15
-                       │       │            │ .parquet
-```
-
-### Review verdict
-**APPROVE — ship.** All hard constraints honoured. All seven AC mapped to tests or manual smoke steps. Zero existing files modified. See `pipeline/final-review.md`.
-
-### Acceptance-criteria verification
-| AC | Status | Verified by |
+| Concept (FX GOAT §) | Book definition | Code v1 |
 |---|---|---|
-| AC1 — `python -m dashboard` serves on 127.0.0.1:8090 | Coded | `dashboard/__main__.py` hard-codes host; manual smoke step (a) |
-| AC2 — Page renders all four views with real data | Coded | `dashboard/templates/index.html` + `app.js`; manual smoke step (a) |
-| AC3 — Bot killed → `not_running`, others render | Tested | `test_api_health_when_bot_not_running` + manual smoke (b) |
-| AC4 — Bridge stopped → `unreachable`, no 500 | Tested | `test_api_health_when_bridge_unreachable` + `test_endpoints_never_500_when_trades_explode` + manual smoke (c) |
-| AC5 — `pytest -q` ≥ 551+N passing, 0 failed | Pending operator | Run `python -m pytest -q` from `bot/` |
-| AC6 — `detect_bridge.py` and `main.py` unchanged | Verified | Touched-files manifest shows 0 existing files modified |
-| AC7 — `dashboard/README.md` documents start, URL, files | Done | File exists with all three sections |
+| Premium zone (§2/§3) | Unmitigated supply/demand + liquidity sweeps + candlestick triggers | Fibonacci 0.618–0.786 retracement proxy |
+| Final exit (§3 Phase 4) | Partial at 1:2 + BE-trail + HTF target | Single-leg close at fixed 1:2 |
+| Volatility alignment (§2) | Coiling vs ranging filter | Not implemented |
+| Cooling-off after loss (§4) | 24-hour rule | Operator checklist only — no runtime enforcement |
 
-### How to run
+All four deviations are surfaced in the operator docs with explicit "Current bot behaviour" callouts so the docs never promise behaviour the code lacks.
 
-```bash
-# Easiest
-bash /Users/ltmas/trading-bot-workspace/bot/scripts/start_dashboard.sh
+## Future roadmap (recorded for follow-up PRs)
 
-# Direct
-cd /Users/ltmas/trading-bot-workspace/bot
-python -m dashboard
+- Multi-leg `OrderManager` to support partial fills, BE-trails, and HTF targets
+- Liquidity-sweep + demand/supply zone detection (replaces the Fib proxy)
+- MACD-divergence pullback filter (Adam Grimes — *Art and Science of Technical Analysis* Ch 3)
+- Pin-bar / engulfing candle confirmation trigger (Walter Peters — *Naked Forex* Ch 6, 8)
+- `risk.cooling_off_hours: 24` runtime config flag
+- Integration of Mark Douglas — *Trading in the Zone* probability mindset into a future `docs/trading/psychology.md`
 
-# Then
-open http://127.0.0.1:8090/
-```
+## Test plan
 
-### How to test
+- [x] Full pytest suite green: **711 passed in 62.45 s** (598 baseline + 113 new tests; ran cleanly after every commit, not just at the end)
+- [x] OOS-lock canaries (`tests/test_oos_locks.py`) confirm `params.yaml`, `ema_crossover.py`, `mean_reversion.py`, and `autoresearch.enabled: false` are byte-identical
+- [x] Doc-parser canaries (`tests/docs/test_trading_docs.py`) confirm every required gap-fill phrase (G1–G7) and every code-vs-compendium delta callout is present
+- [x] Backtest CLI selection: `_build_strategy({"strategy": "trend_following", ...})` returns a `TrendFollowing` instance with all kwargs surfaced; existing branches unchanged
+- [ ] **Operator action before activation** (out of PR scope):
+  - [ ] Subscribe EUR/USD in MT5 MarketWatch on the UTM VM (per the resilience PR's contract)
+  - [ ] Verify `curl http://192.168.64.1:8080/state | jq .tick.symbol` returns `"EURUSD"`
+  - [ ] When the OOS window closes and DSR ≥ 1.0, write a separate params overlay with `strategy: trend_following` (do NOT mutate `params.yaml` before that gate)
+  - [ ] Run an out-of-sample backtest: `python backtest/engine.py --params autoresearch/params.trend.yaml --symbol EURUSD --timeframe M15 --bars 5000 --guard`
 
-```bash
-cd /Users/ltmas/trading-bot-workspace/bot
-python -m pytest -q                      # full suite — expect 582 passing
-python -m pytest -q tests/dashboard/     # dashboard-only — expect 31 passing
-```
+## PR target
 
-### Open items
-- AC5 physical execution — operator must run pytest to confirm 551 baseline + 31 new = 582 passing. Code-path review by orchestrator was clean; no failures expected.
-- Manual smoke matrix (4 steps, ~2 minutes) — operator runs once after starting the dashboard against the live bot.
-- Future enhancement (out of scope): launchd plist for auto-start on login. Not requested in this run.
+Targets `fix/paper-broker-resilience-v0.1.1` (PR #1) per plan decision Q6. If PR #1 merges first, GitHub will retarget this PR to `main` automatically.
 
----
-
-<promise>COMPLETE</promise>
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

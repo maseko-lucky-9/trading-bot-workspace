@@ -1,0 +1,6 @@
+{
+  "_doc": "T08 lock fixture. SHA-256 of files that MUST NOT change while the OOS paper-trading window v2 is open. Captured 2026-04-29. Updating this fixture is itself a deliberate, reviewed action — never regenerate it from inside the test runner.",
+  "autoresearch/params.yaml": "7818d4d5374d9fb489d81961845155cd69f5eb47c4a72de5b034eb89d976d285",
+  "core/strategy/ema_crossover.py": "26e8fcc440626dba3a238237265ba6e24c2a9e2fa035fbf8449f5d34e43e605d",
+  "core/strategy/mean_reversion.py": "5ea85b1314c85013ce97fb502e2ee21b0464de019532e0fe08d645c665cd7a49"
+}
