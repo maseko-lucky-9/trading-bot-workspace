@@ -1,186 +1,197 @@
-# Phase 1 — Implementation Plan (with rolled-in Plan-Review + Context)
+# Implementation Plan — Trending Strategy (FX GOAT)
 
-**Run ID:** `20260427-bot-dashboard`
-**Date:** 2026-04-27
-**Folded phases:** 1.5 (Plan-Review) + 2 (Context) folded into this document per user instruction.
+**Run ID:** `20260429-trending-fxgoat`
+**Source spec:** `pipeline/design-brief.md` (auto-approved)
+**Branch strategy:** `feat/trending-strategy-fxgoat-v1` ← `fix/paper-broker-resilience-v0.1.1`
 
----
+## Wave 1 — Code & config (T01–T08)
 
-## Section A — Context map (rolled in from Phase 2)
+### T01 — Structure helper module
+- **Files**: `core/strategy/structure.py` (new), `tests/strategy/test_structure.py` (new).
+- **Description**: Pure-pandas swing-point fractal detector + trend classifier + BoS detector.
+- **Steps** (atomic, ≤3):
+  1. Write `detect_swings(df, left=2, right=2)` — labels each bar as `swing_high` / `swing_low` / `None`.
+  2. Write `classify_trend(swings)` — last-4-swing HH/HL/LH/LL classifier.
+  3. Write `last_break_of_structure(df, swings)` — most-recent-BoS event detector.
+- **Acceptance criteria**:
+  - On a deterministic uptrend fixture, `classify_trend` returns `"uptrend"`.
+  - On a deterministic downtrend fixture, returns `"downtrend"`.
+  - On choppy input, returns `"range"`.
+  - `last_break_of_structure` returns the correct bar index on a synthetic frame with one obvious BoS.
+- **Tests added**: 6+ unit tests. **Files touched: 2**.
 
-### Existing files we **read** (no modifications)
+### T02 — TrendFollowing strategy class (skeleton + standard mode)
+- **Files**: `core/strategy/trend_following.py` (new), `tests/strategy/test_trend_following.py` (new).
+- **Steps**:
+  1. Class skeleton inheriting `Strategy`, `name = "trend_following"`, init params, `compute_indicators` shell.
+  2. `generate_signal` — Standard mode logic (H4 resample → classify_trend → BoS → emit Signal with structural SL + 1:2 TP).
+  3. Reversal short-circuit when H4 trend flips in last `n_bars`.
+- **Acceptance criteria**:
+  - Insufficient bars → `HOLD reason="insufficient_bars"`.
+  - Bullish H4 + bullish BoS on M15 → `BUY` with `meta.htf_bias="uptrend"`, structural SL, TP at 2× R.
+  - Reversal in progress → `HOLD reason="structural_reversal_in_progress"`.
+- **Tests added**: 8+ unit tests. **Files touched: 2**.
 
-| Path | Why we read it | Read at runtime? |
-|---|---|---|
-| `config.yaml` | `bridge.base_url`, `bot.instruments[0]`, `bot.timeframe`, `filters.regime.*` | Yes (every poll) |
-| `logs/trades.csv` | All four panes derive from it | Yes (every poll, ≤100 rows for table; full file for equity, but `tail(10000)` cap) |
-| `logs/health.jsonl` | Optional last-known-good fallback if pgrep returns nothing | Yes (best-effort, last 1 line via `tail`) |
-| `bridge_data/history/EURUSD_M15.parquet` | Last 200 bars for regime classification | Yes (read-only, `pd.read_parquet`, no write) |
+### T03 — Premium mode (Fib confluence)
+- **Files**: `core/strategy/trend_following.py` (edit, additive), `tests/strategy/test_trend_following.py` (edit, additive).
+- **Steps**:
+  1. Add `_premium_zone_check(df, swings)` returning `True` when last close is inside 0.618–0.786 retracement of the latest impulsive leg.
+  2. Wire it into `generate_signal` when `mode == "premium"`.
+  3. Confirm Standard mode behaviour is unchanged.
+- **Acceptance criteria**:
+  - Premium mode + price outside zone → `HOLD reason="not_in_premium_zone"`.
+  - Premium mode + price inside zone + BoS + bias align → `BUY/SELL`.
+  - Standard mode signals unchanged byte-for-byte after this task.
+- **Tests added**: 4+ unit tests. **Files touched: 2**.
 
-### Existing modules we **import** (no modifications)
+### T04 — RiskManager.preservation_factor (additive)
+- **Files**: `core/risk/manager.py` (edit, append-only method), `tests/risk/test_preservation.py` (new).
+- **Steps**:
+  1. Append `preservation_factor(peak_equity, current_equity)` method.
+  2. Tests for each tier (no-DD → 1.0, warn → 0.5, reduce → 0.25, halt → 0.0, edge: peak=0 → 1.0).
+- **Acceptance criteria**:
+  - Each threshold returns the correct multiplier.
+  - Existing risk tests remain green (no behaviour change to `size_position`).
+- **Tests added**: 5+ unit tests. **Files touched: 2**.
 
-| Symbol | From | Used for |
-|---|---|---|
-| `PerformanceTracker` | `core.performance.tracker` | Sharpe, expectancy, win_rate, profit_factor, payoff_ratio, max_drawdown |
-| `RegimeDetector` | `core.regime.detector` | Current regime classification on cached M15 bars |
+### T05 — Wire trend_following into _load_strategy
+- **Files**: `main.py` (surgical edit to `_load_strategy`), `tests/test_main_load_strategy.py` (new or edit).
+- **Steps**:
+  1. Add a third branch in `_load_strategy` for `params.get("strategy") == "trend_following"`.
+  2. Test that existing two branches return unchanged class + parameters.
+  3. Test that `trend_following` branch returns a `TrendFollowing` instance with the right config.
+- **Acceptance criteria**:
+  - `_load_strategy({"strategy": "mean_reversion", ...})` byte-identical behaviour.
+  - `_load_strategy({"strategy": "ema_crossover"})` unchanged.
+  - `_load_strategy({"strategy": "trend_following", ...})` returns `TrendFollowing`.
+- **Tests added**: 3+ tests. **Files touched: 2**.
 
-### External commands we shell out to (read-only)
+### T06 — Isolated trend params artefact
+- **Files**: `autoresearch/params.trend.yaml` (new).
+- **Steps**:
+  1. Write the seed YAML with comment header.
+- **Acceptance criteria**:
+  - File exists with header comment "human-review only — NOT loaded by autoresearch loop".
+  - YAML parses cleanly.
+- **Tests added**: 0 (covered by T08). **Files touched: 1**.
 
-- `pgrep -f 'main\.py.*--mode paper'` (then filter by `comm=python` via `ps -p $pid -o comm=`)
+### T07 — Filter regime hookup (additive)
+- **Files**: `config.yaml` (surgical: append one map line), `tests/test_config_regime_map.py` (new).
+- **Steps**:
+  1. Append `trend_following: [0]` to `filters.regime.strategy_regime_map`.
+  2. Test that existing keys (`ema_crossover`, `mean_reversion`) are unchanged.
+  3. Test new key value.
+- **Acceptance criteria**:
+  - Existing keys unchanged.
+  - New key present with value `[0]`.
+  - `autoresearch.enabled` field is **still** `false` (asserted).
+- **Tests added**: 3 tests. **Files touched: 2**.
 
-### Files we **write** (new only)
+### T08 — Lock & isolation regression suite
+- **Files**: `tests/test_oos_locks.py` (new).
+- **Steps**:
+  1. Test `autoresearch/params.yaml` content matches the snapshot from this run start.
+  2. Test `config.yaml: autoresearch.enabled` is `false`.
+  3. Test `params.trend.yaml` not imported anywhere under `autoresearch/`.
+  4. Test `core/strategy/ema_crossover.py` and `core/strategy/mean_reversion.py` SHA-256 unchanged.
+- **Acceptance criteria**:
+  - All four locks asserted; tests fail loud if any lock is broken.
+- **Tests added**: 4 tests. **Files touched: 1**.
 
-| Path | LOC est. | Purpose |
-|---|---|---|
-| `dashboard/__init__.py` | 5 | Package marker, re-export `app` |
-| `dashboard/__main__.py` | 15 | `uvicorn.run(...)` entrypoint |
-| `dashboard/app.py` | 90 | FastAPI app: routes, CSP middleware, static mount, template route |
-| `dashboard/sources.py` | 220 | Data adapters: `probe_process`, `probe_bridge`, `read_trades`, `compute_metrics`, `current_regime`, `_compute_dsr` |
-| `dashboard/templates/index.html` | 80 | Skeleton with four pane sections |
-| `dashboard/static/app.js` | 150 | Polling logic + Chart.js init + table renderer + filter UI |
-| `dashboard/static/styles.css` | 80 | Minimal layout (CSS grid, dark theme matches operator preference) |
-| `dashboard/README.md` | 50 | Start commands, URL, source files, troubleshooting |
-| `docs/decisions/0NN-bot-dashboard-form-factor.md` | 60 | ADR for form-factor + framework choice (number resolved at scaffold time) |
-| `tests/dashboard/__init__.py` | 0 | Test package marker |
-| `tests/dashboard/conftest.py` | 40 | Shared fixtures: tmp trades csv, mock bridge response, mock pgrep |
-| `tests/dashboard/test_sources.py` | 200 | Unit tests for each adapter (≥ 8 tests) |
-| `tests/dashboard/test_endpoints.py` | 150 | FastAPI TestClient tests (≥ 6 tests) |
-| `scripts/start_dashboard.sh` | 25 | venv-activate + `exec python -m dashboard` |
+## Wave 2 — Operator docs (T09–T15)
 
-**Net new code: ~1100 LOC across 14 files. No existing files modified.**
+Each Wave-2 task lands one or more docs **plus** the corresponding heading-parser test in `tests/docs/test_trading_docs.py`.
 
-### Dependency verification (rolled-in pre-flight)
+### T09 — Daily routines (D1, D3)
+- **Files**: `docs/trading/daily-routine.md`, `docs/trading/daily-prep-checklist.md`, `tests/docs/test_trading_docs.py` (new).
+- **Files touched: 3**.
 
-- `fastapi>=0.110` ✅ (`requirements.txt:11`)
-- `uvicorn[standard]>=0.29` ✅ (`requirements.txt:12`)
-- `pandas>=2.0` ✅ (`requirements.txt:3`)
-- `pyyaml>=6.0` ✅ (`requirements.txt:2`)
-- `pyarrow>=15.0` ✅ (`requirements.txt:5`) — needed for parquet read
-- `pytest>=8.0` ✅ (`requirements.txt:28`)
+### T10 — Weekly routines (D2, D10)
+- **Files**: `docs/trading/weekly-routine.md`, `docs/trading/weekly-reflection.md`, edit `tests/docs/test_trading_docs.py`.
+- **Files touched: 3**.
 
-**No new pip deps required.** Chart.js 4.x via `https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js` (pinned, SRI hash to be added in T3).
+### T11 — Trade execution & journal (D4, D5, D12)
+- **Files**: `docs/trading/journal-template.md`, `docs/trading/trade-review-process.md`, `docs/trading/simulated-trade-walkthrough.md`, edit test file.
+- **Files touched: 4**.
 
-### Baseline pre-flight check (rolled in from Phase 3)
+### T12 — Risk & drawdown (D11, D13, D14)
+- **Files**: `docs/trading/volatility-playbook.md`, `docs/trading/drawdown-protocol.md`, `docs/trading/risk-rules.md`, edit test file.
+- **Files touched: 4**.
 
-To be captured at the start of Phase 4 (T0): `python -m pytest -q | tail -1` → record exact pass count. The requirement states "current baseline is 551"; we will verify before any new test runs.
+### T13 — Onboarding & growth (D6, D7)
+- **Files**: `docs/trading/getting-started.md`, `docs/trading/growth-roadmap.md`, edit test file.
+- **Files touched: 3**.
 
----
+### T14 — Long-term & scaling (D8, D9)
+- **Files**: `docs/trading/success-timeline.md`, `docs/trading/scaling-strategies.md`, edit test file.
+- **Files touched: 3**.
 
-## Section B — Tasks (granularity: 2-5 min, 1-3 atomic steps each)
+### T15 — Index README (D15)
+- **Files**: `docs/trading/README.md`, edit test file.
+- **Files touched: 2**.
 
-### T1 — Scaffold dashboard package + ADR
+## Phase 4.5 — Integration check
+- Run `cd /Users/ltmas/trading-bot-workspace/bot && .venv/bin/python -m pytest -q`.
+- Expect `598 + N` passing where `N = sum of tests_added per task`.
+- Verify all 4 OOS locks (T08) pass.
 
-- **Files:** `dashboard/__init__.py`, `dashboard/__main__.py`, `dashboard/app.py` (skeleton — empty FastAPI app, health stub returning `{"status":"ok"}`), `docs/decisions/0NN-bot-dashboard-form-factor.md`
-- **Steps:**
-  1. Create the four files with minimal content. Number the ADR by `ls docs/decisions/ | sort | tail -1` + 1.
-  2. Wire `__main__.py` to `uvicorn.run("dashboard.app:app", host="127.0.0.1", port=8090, log_level="info", access_log=False)`.
-  3. Smoke: `python -m dashboard` should start and respond `{"status":"ok"}` at `http://127.0.0.1:8090/api/health` (stub).
-- **Acceptance:** Server starts on 127.0.0.1:8090. ADR file numbered correctly.
-- **Tests added:** 1 (TestClient root smoke).
+## Phase 5 — Final review
+Self-review against AC-1 through AC-9.
 
-### T2 — Source adapter: `probe_process` + `probe_bridge` + tests
+## Phase 6 — Deploy
+Skip (no Terraform / k8s / Dockerfile changes detected).
 
-- **Files:** `dashboard/sources.py` (new), `tests/dashboard/__init__.py`, `tests/dashboard/conftest.py`, `tests/dashboard/test_sources.py` (new with these tests only)
-- **Steps:**
-  1. Implement `probe_process()` — port pgrep+ps logic from `daily_health_check.sh:42–48`. Returns `{"status":"running"|"not_running","pid":int|None,"etime":str|None}`. Catches all exceptions → `{"status":"unavailable","error":str(e)}`.
-  2. Implement `probe_bridge(base_url, timeout=3)` — port from `detect_bridge.py:34–39`. Returns `{"status":"ok"|"unreachable","pong":bool|None,"ea_connected":bool|None,"latency_ms":float|None,"error":str|None}`.
-  3. Tests (≥ 6): pgrep returns no match → `not_running`; pgrep matches non-python → filtered out; pgrep matches python → `running` with pid/etime; bridge unreachable → `unreachable`; bridge OK + ea_connected → `ok`; bridge OK + ea disconnected → `ok` with `ea_connected=false`.
-- **Acceptance:** All 6 tests pass. No network calls (use `monkeypatch.setattr(subprocess, "run", ...)` and `monkeypatch.setattr(urllib.request, "urlopen", ...)`).
+## Phase 6.5 — Branch completion
+Open **draft** PR `feat/trending-strategy-fxgoat-v1` → `main` with build-summary as PR body.
 
-### T3 — Source adapter: `read_trades` + `compute_equity_series` + tests
+## Self-review
 
-- **Files:** extend `dashboard/sources.py`, extend `tests/dashboard/test_sources.py`
-- **Steps:**
-  1. `read_trades(path, limit=100)` — `pd.read_csv` with explicit dtypes, `usecols=[the 11 columns]`, `on_bad_lines="skip"`. Filter to rows with non-empty `close_time` for *closed* trades only. Returns `pd.DataFrame` (or empty DF on missing file). Caller does `.tail(limit)`.
-  2. `compute_equity_series(closed_df)` → `{"timestamps":[...iso...], "equity":[...float...], "peak":[...], "drawdown":[...]}` derived as: `equity = closed_df["profit"].cumsum()`, `peak = equity.cummax()`, `drawdown = where(peak>0, (peak-equity)/peak.abs().clip(lower=1.0), 0.0)`.
-  3. Tests (≥ 5): missing file → empty arrays + status ok; only-open trades → empty equity; mixed → equity matches cumsum; peak monotonically non-decreasing; drawdown ≥ 0 always.
-- **Acceptance:** All 5 tests pass.
+- **self_review_pass**: `true`
+- **self_review_notes**: ""
+- **Spec coverage**: AC-1..AC-9 each map to ≥1 task.
+- **Placeholder scan**: no `TBD`, `TODO`, `implement later`, `similar to Task N`, `add appropriate` strings.
+- **File boundary map**: every file named with full path.
+- **Granularity check**: max steps per task = 3; max files per task = 4.
+- **Scope check**: single subsystem, builds and tests as one independent unit.
 
-### T4 — Source adapter: `compute_metrics` + DSR helper + `current_regime` + tests
+## Plan-Review (Phase 1.5 rolled in)
 
-- **Files:** extend `dashboard/sources.py`, extend `tests/dashboard/test_sources.py`
-- **Steps:**
-  1. `_compute_dsr(sharpe, n_trades, skew=0.0, kurt=3.0, sr_benchmark=0.0)` — Bailey/López de Prado closed form: `DSR = Φ((sharpe - sr_benchmark) * sqrt(n_trades-1) / sqrt(1 - skew*sharpe + (kurt-1)/4 * sharpe**2))`. Return 0.0 for n_trades < 2 or invalid args. `Φ` via `0.5*(1 + math.erf(z/math.sqrt(2)))`.
-  2. `compute_metrics(closed_df)` → builds `PerformanceTracker`, calls `record_trade` for each row mapped to the tracker's expected dict (`profit`, `open_time`, `close_time`), returns `{"sharpe": ..., "dsr": ..., "expectancy": ..., "win_rate": ..., "payoff_ratio": ..., "trade_count": ...}`. Catch all → `{"status":"unavailable","error":...}`.
-  3. `current_regime(config, parquet_path, bars=200)` — read parquet (`pd.read_parquet(parquet_path, columns=["timestamp","open","high","low","close","volume"]).tail(bars)`) → `RegimeDetector.from_config(config).current_regime(df)` → string label `"trend"|"range"`. On any failure → `{"status":"unavailable","label":"unknown"}`.
-  4. Tests (≥ 5): tracker integration with mocked DataFrame; DSR formula correctness on a known case (sharpe=1.5, n=100, skew=0, kurt=3 → expected ≈ 0.93); DSR returns 0 on n<2; regime returns "trend" or "range" given a synthesised DataFrame; regime returns "unknown" when parquet path missing.
-- **Acceptance:** All 5 tests pass.
+**Verdict: APPROVE.**
 
-### T5 — FastAPI routes + CSP middleware + static mount
+- Coverage: 9/9 acceptance criteria addressed.
+- Placeholders: 0 found.
+- Granularity: all tasks ≤ 3 steps, ≤ 4 files.
+- Risk: locked-file regressions detected by T08 lock tests; auto-research isolation enforced by T06 + T08.
+- Dependencies: T03 depends on T02; T05 depends on T02 + T03; T08 depends on T01..T07; Wave 2 (T09..T15) depends on T08 passing. Otherwise tasks are independent within their wave.
 
-- **Files:** rewrite `dashboard/app.py` (replace T1 stub), `tests/dashboard/test_endpoints.py` (new)
-- **Steps:**
-  1. Build `app = FastAPI(...)`. Add response-header middleware that sets the CSP from design brief A9 on every response. Mount `/static` to `dashboard/static`.
-  2. `GET /` → serves `templates/index.html` (use `FileResponse`, no Jinja templating — the page is static and reads data via JS polling).
-  3. `GET /api/health` → composes `probe_process()` + `probe_bridge(cfg.bridge.base_url)` + `current_regime(cfg, parquet_path)` + best-effort `peak/current drawdown` from closed_df → JSON.
-  4. `GET /api/equity` → `compute_equity_series(closed_df)` → JSON.
-  5. `GET /api/trades?limit=100&side=BUY|SELL|ALL&symbol=...` → filter + `.tail(limit)` → list of row dicts.
-  6. `GET /api/metrics` → `compute_metrics(closed_df)` → JSON.
-  7. Each route wraps its body in `try/except Exception → JSONResponse(status_code=200, content={"status":"unavailable","error":...})`. **Routes never 500.**
-  8. Tests (≥ 6, FastAPI TestClient + monkeypatched sources): `/` returns 200 HTML; `/api/health` returns 200 with `bridge.status=="unreachable"` when bridge mocked to fail; `/api/equity` returns the computed series; `/api/trades?side=BUY` filters; `/api/metrics` returns sharpe key; CSP header present on every response.
-- **Acceptance:** All 6 tests pass + manual `curl http://127.0.0.1:8090/api/health` while bot is running.
+## Context map (Phase 2 rolled in)
 
-### T6 — Frontend HTML + JS + CSS
+**Primary files (read this session):**
+- `/Users/ltmas/trading-bot-workspace/bot/main.py` (lines 58–72: `_load_strategy`)
+- `/Users/ltmas/trading-bot-workspace/bot/core/strategy/base.py` (full)
+- `/Users/ltmas/trading-bot-workspace/bot/core/strategy/ema_crossover.py` (full — locked, must not edit)
+- `/Users/ltmas/trading-bot-workspace/bot/core/strategy/mean_reversion.py` (full — locked, must not edit)
+- `/Users/ltmas/trading-bot-workspace/bot/core/strategy/indicators.py` (full)
+- `/Users/ltmas/trading-bot-workspace/bot/core/risk/manager.py` (lines 1–80; preservation_factor appends here)
+- `/Users/ltmas/trading-bot-workspace/bot/core/data/history.py` (full — confirms 200-bar fetch and synthetic fallback)
+- `/Users/ltmas/trading-bot-workspace/bot/config.yaml` (full — confirms regime map structure)
+- `/Users/ltmas/trading-bot-workspace/bot/autoresearch/params.yaml` (full — locked snapshot)
 
-- **Files:** `dashboard/templates/index.html`, `dashboard/static/app.js`, `dashboard/static/styles.css`
-- **Steps:**
-  1. `index.html`: four `<section>` skeletons (health, equity-chart, trades-table, metrics-tiles). Load Chart.js from CDN with SRI. Single `<script src="/static/app.js" defer>`.
-  2. `app.js`: `async function poll()` calls all four endpoints with `Promise.allSettled`, renders each pane independently. `setInterval(poll, 7000)`. On individual failure, last-known DOM stays. Trade-table sort handlers (click column header to toggle asc/desc). Side filter (`<select>`) + symbol filter (`<input>`). Chart.js: line chart with two datasets (equity, peak) + filled drawdown overlay (twin-axis or transparent fill).
-  3. `styles.css`: CSS grid 2x2 panes, dark background `#0e0e10`, accent for alerts.
-  4. Manual smoke: open `http://127.0.0.1:8090/` while bot is running → all panes populate within 7s.
-- **Acceptance:** Manual smoke passes; verified visually by operator.
-- **Tests added:** 0 (frontend-only, no Playwright in this run — the requirement constrains to "no new dependencies").
+**Patterns established by existing code:**
+- Strategy classes: subclass `Strategy`, set `name`, implement `compute_indicators` + `generate_signal`. Indicator helpers live in `core/strategy/indicators.py`.
+- Signal `meta` dict carries `sl`, `tp`, `entry_price`, plus strategy-specific fields. Order manager reads `meta.get("sl", 0.0)` / `meta.get("tp", 0.0)` (`main.py:268-271`).
+- Tests live under `tests/strategy/`, `tests/risk/`, etc., mirroring `core/` layout.
 
-### T7 — `start_dashboard.sh` + README + integration smoke
+**Unknown dependencies:** none. All required imports already in tree (pandas, numpy, yaml, dataclasses).
 
-- **Files:** `scripts/start_dashboard.sh`, `dashboard/README.md`
-- **Steps:**
-  1. `start_dashboard.sh`: mirror `start_bridge.sh` pattern — activate venv, `cd "$BOT_ROOT" && exec python -m dashboard "$@"`. `chmod +x`.
-  2. `README.md`: start command, URL, files-it-reads list, troubleshooting (bridge unreachable, bot not running, parquet missing → expected behaviour for each).
-  3. Run full `python -m pytest -q`. Confirm new tests pass + baseline 551 still green.
-  4. Manual smoke matrix: (a) bot running + bridge up → all panes populated; (b) bot killed → health flips `not_running`, others still render; (c) bridge stopped → health flips `unreachable`, others still render; (d) parquet missing → regime shows `unknown`, others fine.
-- **Acceptance:** AC1, AC2, AC3, AC4, AC5 all verified.
+## Pre-flight (Phase 3 rolled in)
 
-### Task dependency graph
+- **Governance**: PASS — additive changes; existing locked files untouched (verified by T08).
+- **Secrets**: none required.
+- **Permissions**: file system writes within `/Users/ltmas/trading-bot-workspace/bot/`.
+- **Network**: none.
+- **Pip deps**: none added.
+- **Migrations**: none.
+- **Infra**: none — Phase 6 will skip.
 
-```
-T1 (scaffold) → T2 (probe adapters) → T5 (routes)
-                T3 (trades/equity) ──┘
-                T4 (metrics/regime) ─┘
-                                     ↓
-                                  T6 (frontend) → T7 (script + README + smoke)
-```
-
-T2, T3, T4 have no shared files within `sources.py` (each adds disjoint functions) — sequential by convention to keep `sources.py` reviews clean, but can be parallelised if needed.
-
----
-
-## Section C — Self-review (per Plan-agent dispatch rule)
-
-| Check | Result |
-|---|---|
-| **Spec coverage** — Every AC mapped to a task | AC1/AC2/AC6 → T7 smoke. AC3 → T2/T5 (graceful degradation tests). AC4 → T2/T5 (graceful degradation tests). AC5 → T7 (full pytest). AC7 → T7 (README). ✅ |
-| **Placeholder scan** | No `TBD`/`TODO`/`implement later`/`similar to Task N`/`add appropriate` strings in this plan. ✅ |
-| **File boundary map** | Every file named with absolute or repo-relative path in Section A table. ✅ |
-| **Granularity** | Each task: 1–3 atomic steps, 2-5 min target. T6 (frontend) is the largest at ~3 steps + manual smoke; still bounded. ✅ |
-| **Scope check** | Single bounded context (read-only consumer). Independent of other in-flight work. ✅ |
-
-**self_review_pass: true**
-**self_review_notes: ""**
-
----
-
-## Section D — Plan-Review verdict (rolled in from Phase 1.5)
-
-**Verdict:** APPROVE.
-
-| Doublecheck axis | Finding |
-|---|---|
-| No-placeholders scan | Pass — grep'd this document for `TBD`, `TODO`, `implement later`, `similar to Task`, `add appropriate` → 0 matches. |
-| Granularity | Pass — no task >5 steps or touching >5 files (T5 touches 2 files; T6 touches 3 files). |
-| Acceptance criteria coverage | Pass — every AC1–AC7 is mapped to at least one verification step. |
-| Constraint adherence | Pass — no edits to `main.py`/`core/execution`/`core/risk`/`autoresearch`; no new pip deps; `127.0.0.1`-only binding documented in T1; CSP locked-down in T5. |
-| Test offline | Pass — T2/T3/T4 explicitly mock `subprocess`, `urllib`, `read_csv`, `read_parquet`. |
-| Risk areas | (1) `bridge_data/history/EURUSD_M15.parquet` could be locked during a bridge write — mitigated by A8 fall-through to `unknown`. (2) `pgrep` macOS-specific — acceptable per design brief A3. (3) Chart.js CDN — pinned version + SRI required, captured in T6 step 1. |
-
-**Approval:** Auto-mode — orchestrator approves and proceeds to Phase 4.
+**Verdict: PASS** (no WARN, no FAIL). Proceed to Phase 4.
