@@ -37,6 +37,7 @@ from core.risk.manager import RiskManager  # noqa: E402
 from core.strategy.base import Strategy  # noqa: E402
 from core.strategy.ema_crossover import EMACrossover  # noqa: E402
 from core.strategy.mean_reversion import BollingerBandMeanReversion  # noqa: E402
+from core.strategy.trend_following import TrendFollowing  # noqa: E402
 from autoresearch.loop import AutoresearchLoop  # noqa: E402
 
 
@@ -64,6 +65,18 @@ def _load_strategy(params: dict) -> Strategy:
             rsi_oversold=float(params.get("rsi_os", 30.0)),
             rsi_overbought=float(params.get("rsi_ob", 70.0)),
             atr_sl_multiplier=float(params.get("atr_multiplier", 1.5)),
+        )
+    if params.get("strategy") == "trend_following":
+        return TrendFollowing(
+            htf_resample_rule=str(params.get("htf_resample_rule", "4h")),
+            swing_left=int(params.get("swing_left", 2)),
+            swing_right=int(params.get("swing_right", 2)),
+            tp_r_multiple=float(params.get("tp_r_multiple", 2.0)),
+            atr_period=int(params.get("atr_period", 14)),
+            atr_sl_multiplier=float(params.get("atr_sl_multiplier", 1.5)),
+            sl_atr_buffer=float(params.get("sl_atr_buffer", 0.25)),
+            reversal_lookback=int(params.get("reversal_lookback", 10)),
+            mode=str(params.get("mode", "standard")),
         )
     fast = int(params.get("ema_fast", 9))
     slow = int(params.get("ema_slow", 21))
