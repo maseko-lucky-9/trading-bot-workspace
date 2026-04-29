@@ -1,0 +1,54 @@
+# =============================================================================
+# Trend-Following Strategy — seed parameters (FX GOAT v1)
+#
+# **HUMAN-REVIEW ONLY — NOT loaded by the autoresearch loop.**
+#
+# This file is deliberately separate from `autoresearch/params.yaml`. The
+# autoresearch loop (`autoresearch/loop.py`) only ever reads `params.yaml`;
+# it does NOT read this file, and `_load_params` does not look at any
+# `params.*.yaml` glob. T08 enforces this invariant via the lock-and-isolation
+# regression suite.
+#
+# Use this file as a hand-authored seed for backtests / future tuning runs:
+#   python backtest/engine.py --params autoresearch/params.trend.yaml \
+#       --symbol EURUSD --timeframe M15 --bars 5000 --guard
+#
+# Or, after the OOS paper-trading window v2 closes and the operator has
+# DSR-validated the trend_following strategy, copy this file's contents
+# into `params.yaml` as a deliberate, reviewed change.
+#
+# Do NOT have autoresearch overwrite this artefact. Param coupling between
+# `enabled` and `_load_params` is documented in the project memory file
+# `feedback/mt5_autoresearch_param_coupling.md`.
+# =============================================================================
+
+strategy: trend_following
+
+# Higher-timeframe bias gate — pandas resample rule applied to the M15 frame.
+# "4h" matches the FX GOAT compendium's "Daily/H4 bias + 15m entry" pattern;
+# 50-100 H4 bars derived from 200 M15 bars is the operating envelope.
+htf_resample_rule: 4h
+
+# Fractal swing detection — 2 bars of confirmation either side is canonical.
+swing_left: 2
+swing_right: 2
+
+# ATR sizing of the structural stop — buffer below the last swing.
+atr_period: 14
+atr_sl_multiplier: 1.5
+sl_atr_buffer: 0.25
+
+# Reward:risk multiple. Compendium minimum is 2.0; deeper than 2.5 starts to
+# squeeze the strike rate beyond what the structural setup can sustain.
+tp_r_multiple: 2.0
+
+# Reversal short-circuit — bars of HTF lookback for "is the trend flipping?".
+reversal_lookback: 10
+
+# "standard" or "premium". Premium adds a Fibonacci 0.618-0.786 retracement
+# gate as a proxy for the compendium's institutional zones; v1 simplification
+# noted in `core/strategy/trend_following.py` docstring.
+mode: standard
+
+# Per-trade risk in account fraction. Compendium is explicit: never above 2%.
+risk_pct: 0.01
