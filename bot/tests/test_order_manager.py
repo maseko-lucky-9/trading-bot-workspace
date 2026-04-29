@@ -21,7 +21,11 @@ def bridge():
 
 @pytest.fixture
 def om(bridge, tmp_path):
-    broker = PaperBroker(bridge, log_path=tmp_path / "trades.csv")
+    broker = PaperBroker(
+        bridge,
+        log_path=tmp_path / "trades.csv",
+        state_path=tmp_path / "state" / "paper_broker.json",
+    )
     tracker = PerformanceTracker()
     return OrderManager({}, broker, tracker=tracker), tracker
 
@@ -49,7 +53,11 @@ def test_tracker_accumulates_multiple_trades(om):
 
 
 def test_close_without_tracker_does_not_raise(bridge, tmp_path):
-    broker = PaperBroker(bridge, log_path=tmp_path / "trades.csv")
+    broker = PaperBroker(
+        bridge,
+        log_path=tmp_path / "trades.csv",
+        state_path=tmp_path / "state" / "paper_broker.json",
+    )
     manager = OrderManager({}, broker)  # no tracker
     ticket = manager.buy("EURUSD", 0.01)["ticket"]
     result = manager.close(ticket)

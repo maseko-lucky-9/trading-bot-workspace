@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.1] — 2026-04-29 — Paper-broker resilience + OOS window reset
+
+### Fixed
+- **Paper-broker silent fallback fills** (`core/execution/paper_broker.py`): `_current_prices` no longer falls through to a hard-coded `1.10000 / 1.10002` price when the bridge tick fetch returns empty or holds a different symbol. Instead it raises `StaleTickError`. A 5 s last-known-good cache (`LKG_TTL_SECONDS`) softens transient bridge blips so genuine outages are the only thing that surface as rejections. Root-cause of the 173-row corrupt `trades.csv` in OOS window v1.
+- **Symbol-mismatch acceptance**: `_current_prices` now requires `tick.symbol == requested_symbol` (or absent — for legacy/test fixtures). Previously, an EA pushing only USDJPY ticks would happily fill EURUSD orders at USDJPY prices.
+- **Ticket-counter collision across restarts** (`core/execution/paper_broker.py:_ticket_seq`): counter persists to `checkpoints/paper_broker.json` (atomic JSON write) and reloads on `__init__`. Previously every bot restart reset to `1_000_000`, producing duplicate-ticket rows in the journal.
+- **Orphaned open positions on restart**: `_positions` dict persists alongside the counter and reloads on `__init__`. New broker instance can `close_position()` tickets opened by the previous instance.
+- **Corrupt-state recovery**: a malformed `paper_broker.json` is logged as WARN and the counter is reseeded from `max(ticket) + 1` in the existing CSV journal; no crash.
+
+### Operations
+- **OOS paper-trading window v2 opened 2026-04-29**. Window v1 (opened 2026-04-27) voided due to the bridge-outage data corruption; corrupt journal moved to `logs/archive/trades-corrupt-20260427.csv`.
+- `autoresearch/params.yaml` restored from `params.yaml.locked-20260427.bak` (`mean_reversion`, `bb_period=14`, `bb_std=2.25`, `rsi_period=7`, `atr_multiplier=2.25`).
+- `config.yaml: autoresearch.enabled: false` (re-enable only after ≥200-trade DSR re-evaluation closes the window).
+- Bot launchd agent (`com.ltmas.mt5bot.bot`) unloaded pending operator action: subscribe **EURUSD** in the MT5 MarketWatch on the UTM VM (or open an EURUSD chart) before reload, so the bridge actually receives EURUSD ticks.
+
+### Tests
+- 11 new cases in `tests/test_paper_broker.py` pin the new contract (fail-closed raise on bridge exception / empty tick / symbol mismatch; LKG cache hit and TTL expiry; close-position rolls back on stale tick; ticket-counter persistence; open-position reload across restart; corrupt-state-file CSV reseed; atomic write leaves no `.tmp` artefact).
+- `tests/test_order_manager.py` fixtures pass an isolated `state_path` so the real `checkpoints/` directory is never polluted by the test run.
+- Full suite green: **598 passed**.
+
+### Known limitations carried forward
+- Bridge HTTP server still uses a single tick slot (`_state["tick"]`); multi-symbol trading remains unsafe until `core/bridge/http_server.py` adopts per-symbol storage. Tracked separately; not required for single-symbol EURUSD M15 paper trading.
+
 ## [0.1.0] — 2026-04-25 ✓ production-verified
 
 ### Added

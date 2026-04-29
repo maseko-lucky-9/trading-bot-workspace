@@ -28,7 +28,7 @@ autoresearch:
   iterations: 50
   metric_command: "python backtest/engine.py --metric sharpe"
   guard_command: "python backtest/engine.py --guard"
-  enabled: false            # disabled during OOS paper-trading window — re-enable only after DSR re-evaluation
+  enabled: false            # OOS window v2 opened 2026-04-29 after paper-broker resilience fix; re-enable only after DSR re-evaluation at >=200 closed paper trades
   iterations_per_run: 5      # steps per background run (full 50 spread across multiple restarts)
   cooldown_seconds: 3600     # wait this long before restarting after a run completes
   wf_train_pct: 0.8          # walk-forward hold-out fraction for guard calls (0.0 disables)
