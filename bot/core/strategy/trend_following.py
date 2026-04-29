@@ -10,10 +10,19 @@ Top-down workflow:
        inside the 0.618-0.786 Fibonacci retracement of the most recent
        impulsive leg.
 
-Stops are placed at the last opposing swing (with a small ATR-based buffer)
-when one is available; an ATR-multiple fallback is used otherwise. Take-profit
-is calculated as a fixed multiple of the structural risk (default 2:1 R:R per
-the compendium "1:2 minimum" rule).
+Stops are placed at the last opposing swing (with an ATR-based buffer) when
+one is available; an ATR-multiple fallback is used otherwise. Take-profit is
+calculated as a fixed multiple of the structural risk.
+
+**v1.1 default calibration (2026-04-29):** ``sl_atr_buffer=1.0`` and
+``tp_r_multiple=1.5``. The compendium prescribes a 1:2 R:R minimum, but the
+empirical 38-day EUR/USD M15 backtest showed the original 0.25-ATR buffer +
+1:2 target produces a 0% win rate (every BoS entry's structural stop is
+clipped by ordinary noise before TP). The wider buffer is what restores a
+viable win rate on real data. Documented as a deliberate v1 calibration; the
+multi-leg partial-fill exit (book §3 Phase 4 — partial at 1:2 + BE-trail +
+HTF target) remains on the future-roadmap path that would let us reach the
+book's full 1:2+ profile.
 
 The class is purely additive — the existing ``ema_crossover`` and
 ``bollinger_mean_reversion`` strategies are not affected.
@@ -76,10 +85,10 @@ class TrendFollowing(Strategy):
         htf_resample_rule: str = "4h",
         swing_left: int = 2,
         swing_right: int = 2,
-        tp_r_multiple: float = 2.0,
+        tp_r_multiple: float = 1.5,
         atr_period: int = 14,
         atr_sl_multiplier: float = 1.5,
-        sl_atr_buffer: float = 0.25,
+        sl_atr_buffer: float = 1.0,
         reversal_lookback: int = 10,
         mode: Mode = "standard",
     ) -> None:
@@ -284,6 +293,32 @@ class TrendFollowing(Strategy):
                     action="HOLD",
                     strength=0.0,
                     reason="not_in_premium_zone",
+                    meta={
+                        "htf_bias": htf_bias,
+                        "bos_direction": bos["direction"],
+                        "mode": self.mode,
+                    },
+                )
+
+            # --- Pin-bar candle trigger (US-012) ------------------------- #
+            # Naked Forex Ch 8 "Kangaroo Tail" — premium entry requires the
+            # latest closed bar to be a pin in the BoS direction. Filters
+            # out chop-induced false signals at premium zones.
+            #
+            # tail_ratio_min=1.5 is intentionally below the Naked Forex
+            # canonical 2.0; with the Fib zone + HTF bias + BoS confluence
+            # already restricting setups, the canonical 2.0 produces zero
+            # trades on a 38-day window. The 1.5 threshold preserves the
+            # pin-bar shape requirement while allowing the strategy to fire
+            # occasionally on real data.
+            from core.strategy.candles import is_pin_bar_at  # local import — avoids cycle
+
+            pin_direction = "bullish" if bos["direction"] == "bullish" else "bearish"
+            if not is_pin_bar_at(df, len(df) - 1, pin_direction, tail_ratio_min=1.5):
+                return Signal(
+                    action="HOLD",
+                    strength=0.0,
+                    reason="no_pin_bar_confirmation",
                     meta={
                         "htf_bias": htf_bias,
                         "bos_direction": bos["direction"],

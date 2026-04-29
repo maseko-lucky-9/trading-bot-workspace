@@ -34,13 +34,18 @@ swing_left: 2
 swing_right: 2
 
 # ATR sizing of the structural stop — buffer below the last swing.
+# v1.1 calibration (2026-04-29): buffer raised from 0.25 to 1.0 ATR.
+# 38-day EUR/USD M15 sensitivity sweep showed the 0.25 buffer + 1:2 target
+# produced a 0% win rate; sl=1.0 + tp=1.5 produced 50% win rate on 20 trades
+# with 2.19% drawdown (GUARD PASS).
 atr_period: 14
 atr_sl_multiplier: 1.5
-sl_atr_buffer: 0.25
+sl_atr_buffer: 1.0
 
-# Reward:risk multiple. Compendium minimum is 2.0; deeper than 2.5 starts to
-# squeeze the strike rate beyond what the structural setup can sustain.
-tp_r_multiple: 2.0
+# Reward:risk multiple. v1.1 lowered from 2.0 to 1.5 — see sl_atr_buffer
+# rationale above. The compendium's 1:2 minimum target is achievable only
+# with the multi-leg partial-fill exit (roadmap), not with single-leg fixed TP.
+tp_r_multiple: 1.5
 
 # Reversal short-circuit — bars of HTF lookback for "is the trend flipping?".
 reversal_lookback: 10

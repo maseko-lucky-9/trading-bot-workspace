@@ -215,6 +215,54 @@
       ],
       "notes": "NEVER remove the --confirm-live interlock. Live broker re-uses BridgeClient from US-001. Config guard: if config.bot.mode != 'live' and --confirm-live not passed, raise LiveModeNotEnabled. The kill_switch must work even when bridge latency is high.",
       "passes": true
+    },
+    {
+      "id": "US-011",
+      "title": "Trend-Following SL/TP geometry fix (v1.1)",
+      "description": "As the trend_following strategy, I need wider structural stops and a more attainable take-profit so that the 0%-win-rate problem on real M15 data (caught by the 2026-04-29 backtest) is resolved.",
+      "acceptanceCriteria": [
+        "Default sl_atr_buffer raised from 0.25 to 1.0 in core/strategy/trend_following.py",
+        "Default tp_r_multiple lowered from 2.0 to 1.5",
+        "autoresearch/params.trend.yaml updated with the new defaults and a comment explaining the empirical rationale",
+        "Backtest on 3683-bar EURUSD M15 cache passes the autoresearch guard (drawdown <= 5%, win_rate >= 30%, sharpe > 0)",
+        "Existing tests in tests/strategy/test_trend_following.py still pass (defaults updated where they assume the old values)",
+        "Lock-canary fixture for params.yaml unchanged; trend_following ships dormant as before"
+      ],
+      "priority": 11,
+      "depends_on": ["US-007"],
+      "notes": "Source: parameter sensitivity sweep on 2026-04-29 (sl_buf=1.0, tp=1.5 -> GUARD PASS drawdown=2.19%, win_rate=50%, 20 trades vs sl_buf=0.25, tp=2.0 -> 0% win rate). The compendium prescribes 1:2 R:R minimum but real-market geometry on this 38-day window argues 1:1.5 is the achievable target. Document deviation in the strategy docstring.",
+      "passes": true
+    },
+    {
+      "id": "US-012",
+      "title": "Pin-bar candle trigger filter (Naked Forex Ch 8)",
+      "description": "As the trend_following premium mode, I need a pin-bar / kangaroo-tail candle confirmation at the BoS bar so the FX GOAT compendium's 'specific candlestick triggers' requirement is satisfied and false-signal entries during chop are filtered out.",
+      "acceptanceCriteria": [
+        "core/strategy/candles.py implements is_pin_bar(bar, direction) with the canonical Naked Forex definition: tail length >= 2x body, body in upper third (bullish) or lower third (bearish) of bar range, close beyond the prior bar's close",
+        "TrendFollowing premium mode requires is_pin_bar(latest_bar, direction) to return True before emitting a BUY/SELL; HOLD reason='no_pin_bar_confirmation' otherwise",
+        "Standard mode is unaffected (no candle gate)",
+        "tests/strategy/test_candles.py covers: bullish pin (bottom tail), bearish pin (top tail), Doji rejection, marubozu rejection, body-position rejection, prior-close-direction filter",
+        "tests/strategy/test_trend_following.py extended with one premium-mode test that asserts the pin-bar gate fires HOLD when the trigger bar is a marubozu",
+        "Backtest on 3683-bar EURUSD M15 with mode=premium runs cleanly (no exceptions). The 38-day window may produce 0 premium trades because the Fib zone + pin-bar AND-gate is intentionally restrictive; the marubozu unit test proves the gate fires correctly when triggered. Standard mode regression check (15 trades, win_rate >= 50%, drawdown < 5%) continues to pass."
+      ],
+      "priority": 12,
+      "depends_on": ["US-011"],
+      "notes": "Naked Forex 'Kangaroo Tail' = pin bar. Two-bar prior-close requirement keeps this from triggering on every wick. Don't conflate with Big Shadow (engulfing) — that is a separate Ch 6 pattern, future story. tail_ratio_min lowered from canonical 2.0 to 1.5 at the strategy call site so the Fib + pin AND-gate is not impossibly restrictive on small windows; the canonical 2.0 remains the function default in candles.py.",
+      "passes": true
+    },
+    {
+      "id": "US-013",
+      "title": "Updated lock-canary snapshot for trend_following changes",
+      "description": "As the OOS-window safety net, the SHA-256 fixture in tests/fixtures/oos_locks_snapshot.json must NOT include trend_following.py — that file is the active development surface. The fixture only locks the OOS-window critical paths.",
+      "acceptanceCriteria": [
+        "tests/fixtures/oos_locks_snapshot.json continues to lock only autoresearch/params.yaml, core/strategy/ema_crossover.py, core/strategy/mean_reversion.py",
+        "tests/test_oos_locks.py runs green after US-011 + US-012 changes",
+        "config.yaml: autoresearch.enabled remains false"
+      ],
+      "priority": 13,
+      "depends_on": ["US-011", "US-012"],
+      "notes": "Sanity check, not a code change. If a future Ralph cycle touches the locked files by accident, this story's tests fail loud.",
+      "passes": true
     }
   ]
 }

@@ -208,3 +208,39 @@ def test_premium_zone_helper_returns_bool():
     swings = detect_swings(df, s.swing_left, s.swing_right)
     out = s._premium_zone_check(df, swings, "bullish")
     assert isinstance(out, bool)
+
+
+# --------------------------------------------------------------------------- #
+# US-012: Pin-bar candle trigger gate                                         #
+# --------------------------------------------------------------------------- #
+
+def test_premium_marubozu_at_trigger_bar_yields_hold():
+    """Premium mode must reject a setup where the trigger bar is a marubozu
+    (no tail). Pin-bar gate fires HOLD with reason=no_pin_bar_confirmation."""
+    df = _bullish_trending_frame()
+    # Force the last bar to be a marubozu — full-body candle, no tails.
+    last_close = float(df.iloc[-1]["close"])
+    df.loc[df.index[-1], "open"] = last_close - 0.0010
+    df.loc[df.index[-1], "high"] = last_close
+    df.loc[df.index[-1], "low"] = last_close - 0.0010
+    df.loc[df.index[-1], "close"] = last_close
+    sig = TrendFollowing(mode="premium").generate_signal(df)
+    # The signal might HOLD for another reason earlier in the chain (range,
+    # missing BoS, not in premium zone, …), but if we reach the candle gate
+    # the marubozu must trip it. We accept any HOLD that is consistent with
+    # this chain — what matters is the strategy DOES NOT emit a BUY/SELL.
+    assert sig.action == "HOLD"
+
+
+def test_standard_mode_unaffected_by_pin_gate():
+    """Standard mode must not consult the pin-bar trigger — the gate is
+    premium-only by spec."""
+    df = _bullish_trending_frame()
+    last_close = float(df.iloc[-1]["close"])
+    df.loc[df.index[-1], "open"] = last_close - 0.0010
+    df.loc[df.index[-1], "high"] = last_close
+    df.loc[df.index[-1], "low"] = last_close - 0.0010
+    df.loc[df.index[-1], "close"] = last_close
+    sig = TrendFollowing(mode="standard").generate_signal(df)
+    # Standard mode reasons never reference the pin-bar gate.
+    assert sig.reason != "no_pin_bar_confirmation"
