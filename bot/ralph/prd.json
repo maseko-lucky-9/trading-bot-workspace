@@ -1,7 +1,7 @@
 {
   "project": "MT5AutoTradingBot",
   "branchName": "ralph/trading-bot-core",
-  "description": "Autonomous MT5 Trading Bot \u2014 10 core stories from bridge to live trading",
+  "description": "Autonomous MT5 Trading Bot — 10 core stories from bridge to live trading",
   "userStories": [
     {
       "id": "US-001",
@@ -13,13 +13,13 @@
         "get_tick() returns dict with keys: symbol, bid, ask, spread, time",
         "send_order() posts to /command endpoint and returns order result dict",
         "Heartbeat polling loop with configurable interval (default 5s), raises BridgeDisconnected on timeout",
-        "Unit tests using responses mock \u2014 no live bridge required to run tests",
+        "Unit tests using responses mock — no live bridge required to run tests",
         "python -m pytest core/bridge/test_client.py passes"
       ],
       "priority": 1,
       "passes": true,
       "depends_on": [],
-      "notes": "Bridge server is already implemented at core/bridge/http_server.py. Client must target 192.168.64.1:8080 (UTM host IP). Use requests library. File-based IPC client is at core/bridge/mt5_client.py \u2014 new HTTP client is separate."
+      "notes": "Bridge server is already implemented at core/bridge/http_server.py. Client must target 192.168.64.1:8080 (UTM host IP). Use requests library. File-based IPC client is at core/bridge/mt5_client.py — new HTTP client is separate."
     },
     {
       "id": "US-002",
@@ -72,7 +72,7 @@
         "generate_signal(df) returns Signal namedtuple: side ('BUY'|'SELL'|None), entry_price, sl_price, tp_price, confidence",
         "BUY signal when fast EMA crosses above slow EMA on latest completed candle",
         "SELL signal when fast EMA crosses below slow EMA on latest completed candle",
-        "SL placed at entry \u00b1 1.5 * ATR(14); TP at entry \u00b1 3.0 * ATR(14) (2:1 R:R)",
+        "SL placed at entry ± 1.5 * ATR(14); TP at entry ± 3.0 * ATR(14) (2:1 R:R)",
         "No signal generated if spread > 2.5 * average spread (filter noise)",
         "python -m pytest core/strategy/test_ema_crossover.py passes with synthetic OHLCV data"
       ],
@@ -80,7 +80,7 @@
       "depends_on": [
         "US-003"
       ],
-      "notes": "All indicator math must use pandas/numpy only \u2014 no TA-Lib dependency. ATR formula: Wilder smoothing (EMA with alpha=1/n). Knowledge base at research/knowledge-base.md has EMA and ATR formulas.",
+      "notes": "All indicator math must use pandas/numpy only — no TA-Lib dependency. ATR formula: Wilder smoothing (EMA with alpha=1/n). Knowledge base at research/knowledge-base.md has EMA and ATR formulas.",
       "passes": true
     },
     {
@@ -229,7 +229,9 @@
         "Lock-canary fixture for params.yaml unchanged; trend_following ships dormant as before"
       ],
       "priority": 11,
-      "depends_on": ["US-007"],
+      "depends_on": [
+        "US-007"
+      ],
       "notes": "Source: parameter sensitivity sweep on 2026-04-29 (sl_buf=1.0, tp=1.5 -> GUARD PASS drawdown=2.19%, win_rate=50%, 20 trades vs sl_buf=0.25, tp=2.0 -> 0% win rate). The compendium prescribes 1:2 R:R minimum but real-market geometry on this 38-day window argues 1:1.5 is the achievable target. Document deviation in the strategy docstring.",
       "passes": true
     },
@@ -246,7 +248,9 @@
         "Backtest on 3683-bar EURUSD M15 with mode=premium runs cleanly (no exceptions). The 38-day window may produce 0 premium trades because the Fib zone + pin-bar AND-gate is intentionally restrictive; the marubozu unit test proves the gate fires correctly when triggered. Standard mode regression check (15 trades, win_rate >= 50%, drawdown < 5%) continues to pass."
       ],
       "priority": 12,
-      "depends_on": ["US-011"],
+      "depends_on": [
+        "US-011"
+      ],
       "notes": "Naked Forex 'Kangaroo Tail' = pin bar. Two-bar prior-close requirement keeps this from triggering on every wick. Don't conflate with Big Shadow (engulfing) — that is a separate Ch 6 pattern, future story. tail_ratio_min lowered from canonical 2.0 to 1.5 at the strategy call site so the Fib + pin AND-gate is not impossibly restrictive on small windows; the canonical 2.0 remains the function default in candles.py.",
       "passes": true
     },
@@ -260,8 +264,69 @@
         "config.yaml: autoresearch.enabled remains false"
       ],
       "priority": 13,
-      "depends_on": ["US-011", "US-012"],
+      "depends_on": [
+        "US-011",
+        "US-012"
+      ],
       "notes": "Sanity check, not a code change. If a future Ralph cycle touches the locked files by accident, this story's tests fail loud.",
+      "passes": true
+    },
+    {
+      "id": "US-014",
+      "title": "Operator doc — candle-pattern reading guide",
+      "description": "As a beginner operator, I need a concrete walkthrough of the candlestick patterns the bot uses (or considers) so I can read price action on the M15 chart and reconcile what I see with what the strategy emits. Closes the partial-coverage item from the 2026-04-30 compendium audit (#14 'clarify how to read candlestick signals').",
+      "acceptanceCriteria": [
+        "docs/trading/candle-patterns.md exists with YAML frontmatter (title, last_updated, source: 'FX GOAT Mastery Compendium')",
+        "Required H2 sections: Anatomy of a Candle, Doji, Marubozu, Hammer / Hanging Man, Engulfing (Big Shadow), Pin Bar (Kangaroo Tail), How the bot uses these signals",
+        "Each section has at least one paragraph (>=60 chars body) — no stub headings",
+        "Pin-bar section explicitly references core/strategy/candles.py:is_pin_bar and the tail_ratio_min=1.5 strategy-side relaxation",
+        "Big Shadow / engulfing section names it as a future-roadmap pattern (not yet in code)",
+        "Heading-parser test passes against the new doc"
+      ],
+      "priority": 14,
+      "depends_on": [
+        "US-012"
+      ],
+      "notes": "Naked Forex Ch 6 (Big Shadow) + Ch 8 (Kangaroo Tails) are the canonical references; the FX GOAT compendium §3 names 'specific candlestick triggers' as a Premium-execution requirement. This doc closes the gap between what compendium readers expect and what the bot's mechanical filter implements.",
+      "passes": true
+    },
+    {
+      "id": "US-015",
+      "title": "Operator doc — trend-reversal practice exercise",
+      "description": "As an operator, I need the FX GOAT compendium's '20 historical instances' trend-reversal training exercise packaged as a repeatable drill. Closes the partial-coverage item from the 2026-04-30 compendium audit (#31 'detail a practice exercise for identifying trend reversals').",
+      "acceptanceCriteria": [
+        "docs/trading/reversal-practice-exercise.md exists with YAML frontmatter",
+        "Required H2 sections: Why this exercise matters, How to source 20 historical instances, The drill (per-instance steps), Bot-side reference (reversal_lookback short-circuit), Reflection template",
+        "Each section has at least one paragraph (>=60 chars body)",
+        "Drill section produces a numbered procedure: pick chart → mark prior swings → annotate reversal → log outcome",
+        "Bot-side reference section explicitly names core/strategy/trend_following.py reversal short-circuit and links to the strategy docstring",
+        "Heading-parser test passes against the new doc"
+      ],
+      "priority": 15,
+      "depends_on": [
+        "US-012"
+      ],
+      "notes": "Compendium §3 'Trend Reversal Practice Exercise' prescribes the 20-instance drill as part of the Phase-1 Education milestones. This doc closes the loop between the strategy's reversal-detection code and the operator skill of recognising them on a chart.",
+      "passes": true
+    },
+    {
+      "id": "US-016",
+      "title": "Operator doc — backtesting how-to",
+      "description": "As an operator, I need a copy-pasteable walkthrough of the backtest engine CLI so I can validate strategy changes (and answer FX GOAT compendium §6 Week-3 'integrate Lesson 5 / re-backtest') without grepping the engine source. Closes the partial-coverage item from the 2026-04-30 compendium audit (#32 'describe how to backtest a simple strategy').",
+      "acceptanceCriteria": [
+        "docs/trading/backtesting-how-to.md exists with YAML frontmatter",
+        "Required H2 sections: Three goals of backtesting, Where the data lives, Engine CLI essentials, Worked example — locked mean_reversion, Worked example — trend_following standard, Worked example — trend_following premium, Reading guard output, Cross-validation flag, Synthetic-data refusal",
+        "Each section has at least one paragraph (>=60 chars body)",
+        "Three CLI examples include the literal '--params autoresearch/params.trend.yaml' invocation form for trend_following",
+        "Three goals of backtesting section cites Naked Forex Ch 3 (validate edge / build conviction / refine rules)",
+        "Synthetic-data section explains the --allow-synthetic safeguard and why it's off by default",
+        "Heading-parser test passes against the new doc"
+      ],
+      "priority": 16,
+      "depends_on": [
+        "US-007"
+      ],
+      "notes": "Engine entry point: bot/backtest/engine.py. Existing flags worth surfacing: --params, --symbol, --timeframe, --bars, --metric, --guard, --cv kfold:N, --embargo, --allow-synthetic, --min-trades. The doc must be reproducible from the bot's M15 cache without needing the bridge.",
       "passes": true
     }
   ]
