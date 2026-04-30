@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "run_id": "20260427-bot-dashboard",
+  "started_at": "2026-04-27T00:00:00Z",
+  "updated_at": "2026-04-27T00:30:00Z",
+  "current_phase": "summary",
+  "phase_status": "completed",
+  "requirement_summary": "Local read-only FastAPI dashboard on 127.0.0.1:8090 surfacing four panes (bot health, equity+drawdown, trade table, performance metrics) for the running MT5 paper-trading bot. Reads existing artifacts only — no bot-runtime changes, no new pip deps, no LAN exposure.",
+  "phases": {
+    "phase_0":   { "status": "completed", "started_at": "2026-04-27T00:00:00Z", "completed_at": "2026-04-27T00:03:00Z", "duration_seconds": 180, "retries": 0, "artifact": "pipeline/intake-validation.md" },
+    "phase_0_5": { "status": "completed", "started_at": "2026-04-27T00:03:00Z", "completed_at": "2026-04-27T00:08:00Z", "duration_seconds": 300, "skipped": false, "decisions_locked": ["A1","A2","A3","A4","A5","A6","A7","A8","A9","A10","A11","A12"], "artifact": "pipeline/design-brief.md" },
+    "phase_1":   { "status": "completed", "started_at": "2026-04-27T00:08:00Z", "completed_at": "2026-04-27T00:13:00Z", "duration_seconds": 300, "retries": 0, "artifact": "pipeline/plan.md", "task_count": 7 },
+    "phase_1_5": { "status": "rolled_in" },
+    "phase_2":   { "status": "rolled_in" },
+    "phase_3":   { "status": "rolled_in" },
+    "phase_4":   { "status": "completed", "completed_at": "2026-04-27T00:25:00Z" },
+    "phase_4_5": { "status": "completed", "completed_at": "2026-04-27T00:26:00Z" },
+    "phase_5":   { "status": "completed", "completed_at": "2026-04-27T00:28:00Z" },
+    "phase_6":   { "status": "skipped" },
+    "phase_6_5": { "status": "skipped" },
+    "summary":   { "status": "completed", "completed_at": "2026-04-27T00:30:00Z" }
+  },
+  "aborted": false,
+  "archived_reason": "Completed run archived to make room for fresh trending-strategy run."
+}

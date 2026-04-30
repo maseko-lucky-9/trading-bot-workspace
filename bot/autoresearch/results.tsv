@@ -6,3 +6,37 @@ iteration	param	old_val	new_val	sharpe	dsr	max_dd	win_rate	decision	strategy	tim
 3	rsi_period	7.0	8.0	0.3333	-2.3482		16.7	rollback	mean_reversion	2026-04-27T11:32:37.573551+00:00
 4	atr_multiplier	2.25	2.5	1.2233	-1.4615			rollback	mean_reversion	2026-04-27T11:32:44.706370+00:00
 5	bb_period	14.0	13.0	2.1518	-0.7049			keep	mean_reversion	2026-04-27T11:32:51.738416+00:00
+1	ema_fast	9.0	10.0	0.2211	-2.3974			rollback	ema_crossover	2026-04-29T08:08:48.222985+00:00
+2	ema_slow	21.0	22.0	0.3346	-2.2177			rollback	ema_crossover	2026-04-29T08:09:05.388260+00:00
+3	atr_multiplier	2.25	2.0	1.4186	-1.1603	0.92	57.1	keep	ema_crossover	2026-04-29T08:09:22.041465+00:00
+4	ema_fast	9.0	8.0	0.4871	-2.0386	0.90	57.1	keep	ema_crossover	2026-04-29T08:09:36.975157+00:00
+5	ema_slow	21.0	20.0	0.7231	-1.7625	0.90	57.1	keep	ema_crossover	2026-04-29T08:09:53.966428+00:00
+1	bb_period	14.0	15.0	-2.7797	-5.5568		50.0	rollback	mean_reversion	2026-04-29T08:13:09.840387+00:00
+2	bb_std	2.25	2.5	0.7554	-1.9980		50.0	keep	mean_reversion	2026-04-29T08:13:42.950621+00:00
+3	rsi_period	7.0	8.0	2.4093	-0.5402	0.54	75.0	keep	mean_reversion	2026-04-29T08:14:14.595858+00:00
+4	atr_multiplier	2.25	2.5	-3.7263	-7.0146		0.0	rollback	mean_reversion	2026-04-29T08:14:44.538010+00:00
+1	bb_period	13.0	14.0	-0.0189	-3.2566		0.0	rollback	mean_reversion	2026-04-29T08:17:00.720609+00:00
+2	bb_std	2.5	2.75	0.0000	-3.1823	0.46	100.0	keep	mean_reversion	2026-04-29T08:17:32.099566+00:00
+3	rsi_period	8.0	9.0	0.0000	-3.1302		0.0	rollback	mean_reversion	2026-04-29T08:18:03.583913+00:00
+4	atr_multiplier	2.25	2.5	0.0000	-3.0811		0.0	rollback	mean_reversion	2026-04-29T08:18:34.905371+00:00
+5	bb_period	13.0	12.0	0.0000	-3.0347		0.0	rollback	mean_reversion	2026-04-29T08:19:06.008325+00:00
+1	ema_slow	21.0	22.0	-1.3456	-4.3083			rollback	ema_crossover	2026-04-29T09:16:41.615330+00:00
+2	atr_multiplier	2.25	2.0	3.5162	0.2049	0.99	44.4	keep	ema_crossover	2026-04-29T09:17:00.596224+00:00
+3	ema_fast	9.0	10.0	1.7461	-1.6267	0.99	44.4	keep	ema_crossover	2026-04-29T09:17:19.699627+00:00
+4	ema_slow	21.0	20.0	1.3006	-2.0894			rollback	ema_crossover	2026-04-29T09:17:38.318171+00:00
+5	atr_multiplier	2.0	2.25	1.3780	-2.0322	0.20	100.0	keep	ema_crossover	2026-04-29T09:17:57.065834+00:00
+1	bb_std	2.75	3.0	0.0000	-3.3301		0.0	rollback	mean_reversion	2026-04-29T10:17:07.535848+00:00
+2	rsi_period	8.0	7.0	0.0000	-3.2925	0.22	100.0	keep	mean_reversion	2026-04-29T10:17:39.664177+00:00
+3	bb_std	2.75	2.5	0.0000	-3.2564		0.0	rollback	mean_reversion	2026-04-29T10:18:11.705894+00:00
+4	rsi_period	7.0	8.0	0.0000	-3.2217		0.0	rollback	mean_reversion	2026-04-29T10:18:43.603569+00:00
+5	rsi_period	7.0	6.0	0.0000	-3.1882		0.0	rollback	mean_reversion	2026-04-29T10:19:15.727692+00:00
+1	bb_period	13.0	15.0	0.0000	-3.1248		0.0	rollback	mean_reversion	2026-04-29T11:17:10.416015+00:00
+2	bb_period	13.0	11.0	0.0000	-3.0947		0.0	rollback	mean_reversion	2026-04-29T11:17:43.435411+00:00
+3	bb_period	13.0	16.0	0.0000	-3.0657		50.0	rollback	mean_reversion	2026-04-29T11:18:14.951996+00:00
+4	bb_period	13.0	10.0	0.0000	-3.0376		0.0	rollback	mean_reversion	2026-04-29T11:18:45.447417+00:00
+5	bb_period	13.0	18.0	0.0000	-3.0104	0.10	100.0	keep	mean_reversion	2026-04-29T11:19:15.994647+00:00
+1	ema_fast	10.0	11.0	1.9628	-1.0909		25.0	rollback	ema_crossover	2026-04-29T12:16:42.359185+00:00
+2	ema_fast	10.0	9.0	-1.7100	-4.7729			rollback	ema_crossover	2026-04-29T12:17:01.103832+00:00
+3	ema_fast	10.0	12.0	-2.7030	-5.8330		25.0	rollback	ema_crossover	2026-04-29T12:17:20.065756+00:00
+4	ema_fast	10.0	8.0	-2.6752	-5.8574			rollback	ema_crossover	2026-04-29T12:17:38.659492+00:00
+5	ema_fast	10.0	13.0	-2.7702	-6.0007			rollback	ema_crossover	2026-04-29T12:17:57.219399+00:00
