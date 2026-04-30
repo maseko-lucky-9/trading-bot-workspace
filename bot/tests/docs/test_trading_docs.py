@@ -31,6 +31,10 @@ _REQUIRED_DOCS = [
     "drawdown-protocol.md",
     "risk-rules.md",
     "README.md",
+    # Gap-fill docs from US-014..US-016 (2026-04-30)
+    "candle-patterns.md",
+    "reversal-practice-exercise.md",
+    "backtesting-how-to.md",
 ]
 
 
@@ -80,6 +84,23 @@ _GAP_FILLS = [
     ("journal-template.md", "Lesson Learned"),
     # G7: daily-routine.md must adopt the "Kill Zones" terminology
     ("daily-routine.md", "Kill Zones"),
+    # US-014: candle-patterns.md must cover the canonical candle vocabulary
+    ("candle-patterns.md", "Doji"),
+    ("candle-patterns.md", "Marubozu"),
+    ("candle-patterns.md", "Pin Bar"),
+    ("candle-patterns.md", "Kangaroo Tail"),
+    ("candle-patterns.md", "Engulfing"),
+    ("candle-patterns.md", "Big Shadow"),
+    ("candle-patterns.md", "is_pin_bar"),
+    # US-015: reversal-practice-exercise.md must surface the 20-instance drill
+    ("reversal-practice-exercise.md", "20 historical instances"),
+    ("reversal-practice-exercise.md", "reversal_lookback"),
+    ("reversal-practice-exercise.md", "swing_left=2"),
+    # US-016: backtesting-how-to.md must surface the engine CLI essentials and Naked Forex 3 goals
+    ("backtesting-how-to.md", "--params autoresearch/params.trend.yaml"),
+    ("backtesting-how-to.md", "--allow-synthetic"),
+    ("backtesting-how-to.md", "Naked Forex"),
+    ("backtesting-how-to.md", "kfold:5"),
 ]
 
 

@@ -39,6 +39,12 @@ The bot's job is execution; your job is supervision, audit, and the slow compoun
 - [drawdown-protocol.md](./drawdown-protocol.md) — tiered preservation response + 24-hour cooling-off rule
 - [scaling-strategies.md](./scaling-strategies.md) — conservative 10 %-per-month default, aggressive Premium-only exception
 
+## Reference and practice (US-014..US-016)
+
+- [candle-patterns.md](./candle-patterns.md) — Doji, Marubozu, Hammer, Engulfing / Big Shadow, Pin Bar / Kangaroo Tail; what the bot filters on today vs roadmap
+- [reversal-practice-exercise.md](./reversal-practice-exercise.md) — the FX GOAT 20-instance trend-reversal training drill, packaged as a repeatable procedure
+- [backtesting-how-to.md](./backtesting-how-to.md) — engine CLI walkthrough with worked examples for `mean_reversion`, `trend_following` standard, and `trend_following` premium
+
 ## Reading order for new operators
 
 1. Read [getting-started.md](./getting-started.md) and complete the three actionable steps before you do anything else.
