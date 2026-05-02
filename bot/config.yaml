@@ -18,6 +18,7 @@ risk:
   trailing_dd_reduce: 0.15       # 15% DD → reduce position 50%
   trailing_dd_halt: 0.20         # 20% DD → halt all trading
   alert_loss_usd: 50.0           # single-trade loss threshold for WARNING log
+  cooling_off_hours: 24          # pause trading N hours after consecutive-loss halt
 
 autoresearch:
   target_sharpe: 1.5

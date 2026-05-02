@@ -523,6 +523,99 @@ def test_disabled_autoresearch_does_not_start_thread(tmp_path):
     mock_start_ar.assert_not_called()
 
 
+# ------------------------------------------------------------------ #
+# Cooling-off and backward compatibility                             #
+# ------------------------------------------------------------------ #
+
+def test_main_cooling_off_active_skips_order_placement():
+    """BotState with cooling_off_until in the future: no orders placed, bot exits cleanly."""
+    import time
+    from core.checkpoint.state import BotState
+    from core.strategy.base import Signal
+
+    saved = BotState()
+    saved.cooling_off_until = time.time() + 9999.0  # far future
+
+    bridge = _mock_bridge()
+    history_mock = MagicMock()
+    history_mock.fetch.return_value = _flat_ohlcv()
+
+    buy_signal = Signal(action="BUY", strength=0.8, reason="crossover", meta={"sl": 1.09, "tp": 1.12})
+    mock_strategy = MagicMock()
+    mock_strategy.name = "ema_crossover"
+    mock_strategy.generate_signal.return_value = buy_signal
+
+    with (
+        patch("main._load_config", return_value=_paper_cfg()),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+        patch("main._load_strategy", return_value=mock_strategy),
+    ):
+        mock_ckpt.return_value.load.return_value = saved
+        rc = main(["--mode", "paper", "--resume", "--max-seconds", "2"])
+    assert rc == 0
+    # Strategy must never be consulted while in cooling-off.
+    mock_strategy.generate_signal.assert_not_called()
+    # No orders were sent to the bridge.
+    bridge.send_order.assert_not_called()
+
+
+def test_main_cooling_off_expires_and_resumes_trading():
+    """cooling_off_until in the past: gate resets to 0.0 and orders proceed normally."""
+    import time
+    from core.checkpoint.state import BotState
+    from core.strategy.base import Signal
+
+    saved = BotState()
+    saved.cooling_off_until = time.time() - 1.0  # already expired
+
+    bridge = _mock_bridge()
+    history_mock = MagicMock()
+    history_mock.fetch.return_value = _flat_ohlcv()
+
+    buy_signal = Signal(action="BUY", strength=0.8, reason="crossover",
+                        meta={"sl": 1.09, "tp": 1.12, "entry_price": 1.10, "ema_fast": 1.10, "ema_slow": 1.09, "atr": 0.001})
+    mock_strategy = MagicMock()
+    mock_strategy.name = "ema_crossover"
+    mock_strategy.generate_signal.return_value = buy_signal
+
+    with (
+        patch("main._load_config", return_value=_paper_cfg()),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+        patch("main._load_strategy", return_value=mock_strategy),
+    ):
+        mock_ckpt.return_value.load.return_value = saved
+        rc = main(["--mode", "paper", "--resume", "--max-seconds", "2"])
+    assert rc == 0
+    mock_strategy.generate_signal.assert_called()
+
+
+def test_main_backward_compat_checkpoint_missing_cooling_off_field():
+    """Old BotState pickles without cooling_off_until must not crash on --resume."""
+    from core.checkpoint.state import BotState
+
+    saved = BotState()
+    # Simulate a legacy checkpoint that predates cooling_off_until.
+    del saved.cooling_off_until
+
+    bridge = _mock_bridge()
+    history_mock = MagicMock()
+    history_mock.fetch.return_value = _flat_ohlcv()
+
+    with (
+        patch("main._load_config", return_value=_paper_cfg()),
+        patch("main.MT5BridgeClient", return_value=bridge),
+        patch("main.HistoryFetcher", return_value=history_mock),
+        patch("main.CheckpointManager") as mock_ckpt,
+    ):
+        mock_ckpt.return_value.load.return_value = saved
+        rc = main(["--mode", "paper", "--resume", "--max-seconds", "2"])
+    assert rc == 0
+
+
 def test_main_autoresearch_thread_reloads_strategy_on_completion(tmp_path):
     """AR thread exits immediately → strategy reloaded → lines 218-223 covered."""
     import yaml as _yaml

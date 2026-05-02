@@ -70,6 +70,22 @@ class LiveBroker:
         cmd = {"action": "CLOSE", "ticket": ticket}
         return self.bridge.send_order(cmd)
 
+    def partial_close(self, ticket: int, fraction: float) -> dict:
+        """Queue a partial-close command for the EA.
+
+        NOTE: PythonBridgeHTTP.mq5 does not yet handle PARTIAL_CLOSE — the
+        Python side is correct; EA-side support is a follow-up task.
+        """
+        if not (0 < fraction < 1):
+            raise ValueError(f"fraction must be in (0, 1), got {fraction}")
+        cmd = {"action": "PARTIAL_CLOSE", "ticket": ticket, "fraction": float(fraction)}
+        return self.bridge.send_order(cmd)
+
+    def modify_sl(self, ticket: int, new_sl: float) -> dict:
+        """Queue a MODIFY command to update the stop-loss on the EA."""
+        cmd = {"action": "MODIFY", "ticket": ticket, "sl": float(new_sl)}
+        return self.bridge.send_order(cmd)
+
     def get_positions(self) -> list[dict]:
         state = self.bridge.get_state() or {}
         return list(state.get("positions") or [])

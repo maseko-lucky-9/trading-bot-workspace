@@ -195,7 +195,12 @@ def main(argv: list[str] | None = None) -> int:
         loaded = checkpoints.load()
         if loaded is not None:
             state = loaded
+            if not hasattr(state, "cooling_off_until"):
+                state.cooling_off_until = 0.0
             print(f"resumed from checkpoint: iteration={state.iteration}")
+
+    cooling_off_hours = float((cfg.get("risk") or {}).get("cooling_off_hours", 24))
+    _tp1_hit_tickets: set[int] = set()
 
     symbols: list[str] = ((cfg.get("bot") or {}).get("instruments") or ["EURUSD"])
     timeframe = (cfg.get("bot") or {}).get("timeframe", "H1")
@@ -211,7 +216,23 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         while _running:
-            # Account and circuit breaker check once per iteration.
+            # Cooling-off gate: skip new orders while in the post-loss pause window.
+            if args.max_seconds and (time.time() - started) >= args.max_seconds:
+                break
+
+            if state.cooling_off_until > 0.0:
+                now_ts = time.time()
+                if now_ts < state.cooling_off_until:
+                    resumes = datetime.fromtimestamp(
+                        state.cooling_off_until, tz=timezone.utc
+                    ).isoformat()
+                    print(f"cooling off — resumes at {resumes}", file=sys.stderr)
+                    time.sleep(1)
+                    continue
+                else:
+                    state.cooling_off_until = 0.0
+
+        # Account and circuit breaker check once per iteration.
             # We MUST distinguish fresh account data (real equity from the bridge)
             # from the fallback default — running circuit breakers on the
             # 10_000 fallback after peak_equity has been set from real account
@@ -258,6 +279,13 @@ def main(argv: list[str] | None = None) -> int:
                     f"day0={state.day_start_equity:.2f} "
                     f"fresh={account_fresh}]"
                 )
+                # Set cooling-off period on consecutive-loss halt (first trigger only).
+                if "consecutive" in reason and state.cooling_off_until == 0.0:
+                    state.cooling_off_until = time.time() + cooling_off_hours * 3600
+                    print(
+                        f"cooling-off set for {cooling_off_hours}h "
+                        f"until {datetime.fromtimestamp(state.cooling_off_until, tz=timezone.utc).isoformat()}"
+                    )
             else:
                 for sym in symbols:
                     # Outer try wraps the entire per-symbol pipeline so a single
@@ -292,6 +320,41 @@ def main(argv: list[str] | None = None) -> int:
                         # next iteration will retry naturally.
                         print(f"iteration error {sym}: {exc}", file=sys.stderr)
                         continue
+
+            # Position management: partial-close at TP1 then move to break-even.
+            # Runs regardless of circuit-breaker state (manages existing risk).
+            for sym in symbols:
+                try:
+                    tick = bridge.get_tick(sym)
+                    current_bid = float(tick.get("bid", 0.0))
+                    current_ask = float(tick.get("ask", 0.0))
+                except Exception:
+                    continue
+                for pos in om.get_positions():
+                    if pos.get("symbol") != sym:
+                        continue
+                    ticket = pos["ticket"]
+                    if ticket in _tp1_hit_tickets:
+                        continue
+                    tp1 = float(pos.get("tp", 0.0))
+                    if not tp1:
+                        continue
+                    side = pos.get("type", "")
+                    tp1_reached = (
+                        (side == "BUY" and current_bid >= tp1)
+                        or (side == "SELL" and current_ask <= tp1)
+                    )
+                    if tp1_reached:
+                        try:
+                            om.partial_close(ticket, fraction=0.5)
+                            om.set_breakeven(ticket)
+                            _tp1_hit_tickets.add(ticket)
+                            print(
+                                f"tp1 hit ticket={ticket} sym={sym} "
+                                f"partial_close=0.5 be_set=True"
+                            )
+                        except Exception as exc:
+                            print(f"position management error ticket={ticket}: {exc}", file=sys.stderr)
 
             state.iteration += 1
             state.positions = om.get_positions()

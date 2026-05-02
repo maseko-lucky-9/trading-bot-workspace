@@ -20,6 +20,7 @@ class BotState:
     peak_equity: float = 0.0
     day_start_equity: float = 0.0
     day_start_date: str = ""   # ISO date "YYYY-MM-DD" of last day-equity reset
+    cooling_off_until: float = 0.0   # epoch; 0.0 = not in cooling-off
     timestamp: str = field(
         default_factory=lambda: datetime.now(tz=timezone.utc).isoformat()
     )

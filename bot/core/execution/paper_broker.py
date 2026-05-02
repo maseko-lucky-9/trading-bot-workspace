@@ -248,6 +248,58 @@ class PaperBroker:
         self._journal(pos)
         return dict(pos)
 
+    def partial_close(self, ticket: int, fraction: float) -> dict:
+        """Close a fraction of an open position and reduce its volume in place.
+
+        Returns a summary dict with closed_volume, remaining_volume, profit.
+        The position stays open at the reduced volume.
+        """
+        if not (0 < fraction < 1):
+            raise ValueError(f"fraction must be in (0, 1), got {fraction}")
+        with self._lock:
+            pos = self._positions.get(ticket)
+            if pos is None:
+                raise KeyError(f"unknown ticket {ticket}")
+            close_volume = round(pos["volume"] * fraction, 2)
+            remaining = round(pos["volume"] - close_volume, 2)
+        try:
+            bid, ask = self._current_prices(pos["symbol"])
+        except StaleTickError:
+            raise
+        close_price = bid if pos["type"] == "BUY" else ask
+        profit = self._pnl(pos["type"], close_volume, pos["open_price"], close_price)
+        now = _utc_now()
+        partial_row = {
+            **pos,
+            "volume": close_volume,
+            "close_price": close_price,
+            "close_time": now,
+            "profit": profit,
+            "type": pos["type"] + "_PARTIAL",
+        }
+        with self._lock:
+            self._positions[ticket]["volume"] = remaining
+            self._closed.append(dict(partial_row))
+            self._save_state()
+        self._journal(partial_row)
+        return {
+            "ticket": ticket,
+            "closed_volume": close_volume,
+            "remaining_volume": remaining,
+            "close_price": close_price,
+            "profit": profit,
+        }
+
+    def modify_sl(self, ticket: int, new_sl: float) -> dict:
+        """Update the stop-loss of an open position."""
+        with self._lock:
+            pos = self._positions.get(ticket)
+            if pos is None:
+                raise KeyError(f"unknown ticket {ticket}")
+            self._positions[ticket]["sl"] = float(new_sl)
+            self._save_state()
+        return {"ticket": ticket, "sl": float(new_sl)}
+
     def get_positions(self) -> list[dict]:
         with self._lock:
             return [dict(p) for p in self._positions.values()]

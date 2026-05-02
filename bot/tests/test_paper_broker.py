@@ -312,3 +312,88 @@ def test_state_file_atomic_write_no_partial_left_behind(bridge, tmp_path):
     payload = json.loads(state.read_text())
     assert "ticket_seq" in payload
     assert "positions" in payload
+
+
+# ------------------------------------------------------------------ #
+# partial_close                                                       #
+# ------------------------------------------------------------------ #
+
+def test_partial_close_reduces_volume_in_place(broker):
+    t = broker.place_order("EURUSD", "BUY", 1.0)
+    broker.partial_close(t["ticket"], 0.5)
+    pos = next(p for p in broker.get_positions() if p["ticket"] == t["ticket"])
+    assert pos["volume"] == pytest.approx(0.5)
+
+
+def test_partial_close_returns_expected_fields(broker):
+    t = broker.place_order("EURUSD", "BUY", 1.0)
+    result = broker.partial_close(t["ticket"], 0.5)
+    assert result["ticket"] == t["ticket"]
+    assert result["closed_volume"] == pytest.approx(0.5)
+    assert result["remaining_volume"] == pytest.approx(0.5)
+    assert isinstance(result["close_price"], float)
+    assert isinstance(result["profit"], float)
+
+
+def test_partial_close_appends_to_closed_list(broker):
+    t = broker.place_order("EURUSD", "BUY", 1.0)
+    assert len(broker.get_closed()) == 0
+    broker.partial_close(t["ticket"], 0.5)
+    closed = broker.get_closed()
+    assert len(closed) == 1
+    assert closed[0]["type"] == "BUY_PARTIAL"
+    assert closed[0]["volume"] == pytest.approx(0.5)
+
+
+def test_partial_close_position_remains_open(broker):
+    t = broker.place_order("EURUSD", "BUY", 1.0)
+    broker.partial_close(t["ticket"], 0.5)
+    assert any(p["ticket"] == t["ticket"] for p in broker.get_positions())
+
+
+def test_partial_close_invalid_fraction_zero_raises(broker):
+    t = broker.place_order("EURUSD", "BUY", 0.01)
+    with pytest.raises(ValueError):
+        broker.partial_close(t["ticket"], 0)
+
+
+def test_partial_close_invalid_fraction_one_raises(broker):
+    t = broker.place_order("EURUSD", "BUY", 0.01)
+    with pytest.raises(ValueError):
+        broker.partial_close(t["ticket"], 1)
+
+
+def test_partial_close_unknown_ticket_raises(broker):
+    with pytest.raises(KeyError):
+        broker.partial_close(9999999, 0.5)
+
+
+def test_partial_close_stale_tick_raises(broker, bridge, monkeypatch):
+    t = broker.place_order("EURUSD", "BUY", 1.0)
+    broker._last_tick.clear()
+    bridge.get_tick.side_effect = Exception("bridge exploded")
+    with pytest.raises(StaleTickError):
+        broker.partial_close(t["ticket"], 0.5)
+
+
+# ------------------------------------------------------------------ #
+# modify_sl                                                          #
+# ------------------------------------------------------------------ #
+
+def test_modify_sl_updates_position(broker):
+    t = broker.place_order("EURUSD", "BUY", 0.01)
+    broker.modify_sl(t["ticket"], 1.0950)
+    pos = next(p for p in broker.get_positions() if p["ticket"] == t["ticket"])
+    assert pos["sl"] == pytest.approx(1.0950)
+
+
+def test_modify_sl_returns_ticket_and_sl(broker):
+    t = broker.place_order("EURUSD", "BUY", 0.01)
+    result = broker.modify_sl(t["ticket"], 1.0930)
+    assert result["ticket"] == t["ticket"]
+    assert result["sl"] == pytest.approx(1.0930)
+
+
+def test_modify_sl_unknown_ticket_raises(broker):
+    with pytest.raises(KeyError):
+        broker.modify_sl(9999999, 1.0900)
