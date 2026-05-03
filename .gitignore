@@ -16,6 +16,11 @@ logs/
 research/checkpoints/
 research/strategy_specs/
 research/trial_log.tsv
+bot/supervisor/combos/
+bot/supervisor/supervisor.db
+bot/supervisor/supervisor.db-shm
+bot/supervisor/supervisor.db-wal
+bot/supervisor/.supervisor.pid
 
 # macOS
 .DS_Store

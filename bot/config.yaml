@@ -43,6 +43,18 @@ monitoring:
   poll_interval_s: 5            # PositionMonitor polling interval
   log_path: "logs/positions.jsonl"
 
+supervisor:
+  interval_seconds: 3600
+  dsr_threshold: 0.95
+  dsr_floor_for_rollback: 0.30
+  drawdown_alert_pct: 0.05
+  ntfy_topic: prudentia-alerts
+  max_concurrent_patch_attempts: 3
+  max_patch_attempts_per_day: 10
+  escalation_cooldown_seconds: 14400
+  live_merge_quiet_seconds: 86400
+  auto_merge_modes: [paper, live]
+
 pairs_trading:
   symbol1: "EURUSD"
   symbol2: "GBPUSD"
