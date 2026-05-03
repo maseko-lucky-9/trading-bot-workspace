@@ -13,6 +13,9 @@ bot/checkpoints/
 bot/logs/
 bot/autoresearch/results.tsv
 logs/
+research/checkpoints/
+research/strategy_specs/
+research/trial_log.tsv
 
 # macOS
 .DS_Store
