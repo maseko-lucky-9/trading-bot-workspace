@@ -124,14 +124,23 @@ def _check_git_remote() -> None:
 
 def _check_deps() -> None:
     try:
-        import anthropic  # noqa: F401
-        import httpx      # noqa: F401
+        import httpx  # noqa: F401
     except ImportError as exc:
         log.warning("optional dependency missing: %s", exc)
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+
+    # Check Claude access: prefer the local CLI (uses existing Claude Code auth);
+    # fall back to SDK if ANTHROPIC_API_KEY is set.
+    result = subprocess.run(
+        ["claude", "--version"], capture_output=True, text=True, timeout=10
+    )
+    if result.returncode == 0:
+        log.info("claude CLI available (%s) — patch agent enabled", result.stdout.strip())
+    elif os.environ.get("ANTHROPIC_API_KEY"):
+        log.info("claude CLI not found; ANTHROPIC_API_KEY set — patch agent will use SDK")
+    else:
         log.warning(
-            "ANTHROPIC_API_KEY not set — patch agent will be disabled. "
-            "Regressions will be filed as issues but not auto-patched."
+            "Neither 'claude' CLI nor ANTHROPIC_API_KEY found — "
+            "patch agent disabled. Regressions will be filed as issues only."
         )
 
 
@@ -454,9 +463,10 @@ def _phase5_issues_and_patches(
         else:
             log.warning("issue filing failed for event %d", event_id)
 
-        # Patch agent
-        if not api_key:
-            log.warning("ANTHROPIC_API_KEY not set — skipping patch for event %d", event_id)
+        # Patch agent — skip if neither CLI nor API key is available
+        from .patch_agent import _claude_cli_available
+        if not api_key and not _claude_cli_available():
+            log.warning("no Claude access — skipping patch for event %d", event_id)
             continue
 
         if get_patch_attempts_today(db_path=_DB_PATH) >= max_patches_per_day:

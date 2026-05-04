@@ -171,6 +171,16 @@ def _gh_pr_create(branch: str, regression_type: str, issue_number: Optional[int]
             pass
 
 
+def _claude_cli_available() -> bool:
+    try:
+        result = subprocess.run(
+            ["claude", "--version"], capture_output=True, text=True, timeout=10
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
 class PatchAgent:
     def __init__(
         self,
@@ -183,6 +193,47 @@ class PatchAgent:
         self.dry_run = dry_run
 
     def _call_claude(self, prompt: str) -> Optional[str]:
+        """Call Claude. Prefers the local CLI (no API key needed); falls back to SDK."""
+        if _claude_cli_available():
+            return self._call_claude_cli(prompt)
+        if self.api_key:
+            return self._call_claude_sdk(prompt)
+        log.error(
+            "No Claude access: 'claude' CLI not found and ANTHROPIC_API_KEY not set."
+        )
+        return None
+
+    def _call_claude_cli(self, prompt: str) -> Optional[str]:
+        """Use the local `claude -p` CLI — leverages existing Claude Code auth."""
+        for attempt, backoff in enumerate([0] + list(_RATE_LIMIT_BACKOFFS)):
+            if backoff:
+                log.info("rate-limit backoff %ds (attempt %d)", backoff, attempt + 1)
+                time.sleep(backoff)
+            try:
+                result = subprocess.run(
+                    ["claude", "--model", self.model, "-p"],
+                    input=prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    cwd=str(_BOT_ROOT),
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()
+                stderr_lower = result.stderr.lower()
+                if "rate" in stderr_lower or "429" in stderr_lower:
+                    log.warning("claude CLI rate-limited (attempt %d)", attempt + 1)
+                    continue
+                log.error("claude CLI failed (exit %d): %s", result.returncode, result.stderr[:500])
+                return None
+            except subprocess.TimeoutExpired:
+                log.warning("claude CLI timeout (attempt %d/%d)", attempt + 1, len(_RATE_LIMIT_BACKOFFS) + 1)
+                if attempt >= len(_RATE_LIMIT_BACKOFFS):
+                    return None
+        return None
+
+    def _call_claude_sdk(self, prompt: str) -> Optional[str]:
+        """Use the anthropic Python SDK (requires ANTHROPIC_API_KEY)."""
         import anthropic
 
         client = anthropic.Anthropic(api_key=self.api_key)
